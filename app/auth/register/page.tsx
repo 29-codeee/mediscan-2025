@@ -14,7 +14,7 @@ export default function RegisterPage() {
   const [step, setStep] = useState("input"); // "input" or "verify"
   const [isLoading, setIsLoading] = useState(false);
 
-  // 1. Send the 6-digit code
+  // 1. Send the 6-digit code using signUp
   async function sendOtp() {
     const contact = email || phone;
     if (!contact) return alert("Enter email or phone");
@@ -23,17 +23,22 @@ export default function RegisterPage() {
     setIsLoading(true);
     try {
       if (email) {
-        const { error } = await supabase.auth.signInWithOtp({
+        // USE signUp instead of signInWithOtp to prevent magic link behavior
+        const { error } = await supabase.auth.signUp({
           email,
+          password,
           options: {
-            shouldCreateUser: true, // This creates the user in auth.users
+            // We set this to your Vercel URL just in case, 
+            // but the template change in Step 2 will ensure only a code is sent.
+            emailRedirectTo: 'https://medi-scan-5c2a.vercel.app/dashboard',
           }
         });
+
         if (error) {
           alert(error.message);
         } else {
           setStep("verify");
-          alert("A 6-digit code has been sent to your email.");
+          alert("Registration started! Check your email for the 6-digit code.");
         }
       } else {
         // Phone logic
@@ -44,49 +49,36 @@ export default function RegisterPage() {
         });
         if (response.ok) {
           setStep("verify");
-          alert("OTP sent to your phone");
         } else {
           const data = await response.json();
           alert(data.error || "Failed to send OTP");
         }
       }
     } catch (error) {
-      alert("Error sending OTP - please try again");
+      alert("Error sending verification code");
     }
     setIsLoading(false);
   }
 
-  // 2. Verify the 6-digit code and set the password
+  // 2. Verify the 6-digit code
   async function verifyOtp() {
     if (otp.length !== 6) return alert("Enter the 6-digit code");
     setIsLoading(true);
     try {
       if (email) {
-        // Verify the code
+        // For signUp, the type MUST be 'signup'
         const { data, error } = await supabase.auth.verifyOtp({
           email,
           token: otp,
-          type: 'signup' // Use 'signup' for new accounts
+          type: 'signup' 
         });
 
         if (error) {
-          alert(error.message);
+          alert("Verification failed: " + error.message);
         } else {
-          // Once verified, we call your API to set the password 
-          // because OTP login doesn't set a permanent password by default
-          const resp = await fetch('/api/set-password', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, password })
-          });
-
-          if (resp.ok) {
-            alert("Registration successful!");
-            router.push("/auth/login");
-          } else {
-            const payload = await resp.json();
-            alert(payload.error || "Failed to set password");
-          }
+          alert("Registration successful!");
+          // Since they are verified, we redirect directly to the dashboard
+          router.push("/dashboard");
         }
       } else {
         // Phone verification logic
@@ -97,14 +89,14 @@ export default function RegisterPage() {
         });
         if (response.ok) {
           alert("Registration successful!");
-          router.push("/auth/login");
+          router.push("/dashboard");
         } else {
           const data = await response.json();
           alert(data.error || "Invalid OTP");
         }
       }
     } catch (error) {
-      alert("Error verifying OTP");
+      alert("Error during verification");
     }
     setIsLoading(false);
   }
@@ -120,77 +112,67 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-cyan-50">
-      <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute top-0 right-0 w-96 h-96 bg-gradient-to-br from-blue-400/20 to-cyan-400/20 rounded-full blur-3xl -translate-y-48 translate-x-48"></div>
-        <div className="absolute bottom-0 left-0 w-96 h-96 bg-gradient-to-tr from-cyan-400/20 to-blue-400/20 rounded-full blur-3xl translate-y-48 -translate-x-48"></div>
-      </div>
-
-      <div className="relative z-10 min-h-screen flex flex-col">
-        <header className="border-b border-gray-200/50 bg-white/80 backdrop-blur-sm">
-          <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <h1 className="text-xl font-bold text-blue-600">MediScan</h1>
-            </div>
-            <button onClick={() => router.push("/auth/login")} className="text-sm font-medium text-gray-600">Sign In</button>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-cyan-50 flex flex-col">
+      <main className="flex-1 flex items-center justify-center px-4 py-12">
+        <div className="w-full max-w-md bg-white p-8 shadow-xl rounded-2xl border border-gray-100">
+          <div className="text-center mb-8">
+            <h1 className="text-3xl font-bold text-blue-600 mb-2">MediScan</h1>
+            <p className="text-gray-500">{step === "input" ? "Create your medical profile" : "Verify your identity"}</p>
           </div>
-        </header>
 
-        <main className="flex-1 flex items-center justify-center px-4 py-12">
-          <div className="w-full max-w-md bg-white p-8 shadow-xl rounded-2xl">
-            <h2 className="text-2xl font-bold text-center mb-6">
-              {step === "input" ? "Join MediScan" : "Verify Email"}
-            </h2>
-
-            {step === "input" ? (
-              <div className="space-y-6">
-                <div>
-                  <label className="block text-sm font-semibold mb-2">Email or Phone</label>
-                  <input
-                    type="text"
-                    className="w-full p-3 border-2 rounded-xl"
-                    placeholder="your@email.com"
-                    onChange={(e) => handleContactChange(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold mb-2">Password</label>
-                  <input
-                    type={showPassword ? "text" : "password"}
-                    className="w-full p-3 border-2 rounded-xl"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                  />
-                </div>
-                <button 
-                  onClick={sendOtp} 
-                  disabled={isLoading}
-                  className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold"
-                >
-                  {isLoading ? "Sending..." : "Send Verification Code"}
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-6">
+          {step === "input" ? (
+            <div className="space-y-5">
+              <div>
+                <label className="block text-sm font-semibold mb-2">Email Address</label>
                 <input
-                  type="text"
-                  className="w-full p-4 text-center text-3xl tracking-widest border-2 rounded-xl font-mono"
-                  placeholder="000000"
-                  value={otp}
-                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  type="email"
+                  className="w-full p-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                  placeholder="name@company.com"
+                  onChange={(e) => handleContactChange(e.target.value)}
                 />
-                <button 
-                  onClick={verifyOtp} 
-                  className="w-full py-3 bg-green-600 text-white rounded-xl font-bold"
-                >
-                  Confirm & Register
-                </button>
-                <button onClick={() => setStep("input")} className="w-full text-sm text-gray-500">Back</button>
               </div>
-            )}
-          </div>
-        </main>
-      </div>
+              <div>
+                <label className="block text-sm font-semibold mb-2">Password</label>
+                <input
+                  type={showPassword ? "text" : "password"}
+                  className="w-full p-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+                <button onClick={() => setShowPassword(!showPassword)} className="text-xs text-blue-600 mt-2">
+                  {showPassword ? "Hide" : "Show"} Password
+                </button>
+              </div>
+              <button 
+                onClick={sendOtp} 
+                disabled={isLoading}
+                className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold transition-all shadow-md"
+              >
+                {isLoading ? "Processing..." : "Register with Code"}
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-6 text-center">
+              <p className="text-sm text-gray-600">Please enter the 6-digit code sent to <strong>{email}</strong></p>
+              <input
+                type="text"
+                className="w-full p-4 text-center text-4xl tracking-widest border-2 border-blue-100 rounded-xl font-mono focus:border-blue-500 outline-none"
+                placeholder="000000"
+                value={otp}
+                onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              />
+              <button 
+                onClick={verifyOtp} 
+                disabled={isLoading}
+                className="w-full py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold transition-all shadow-md"
+              >
+                {isLoading ? "Verifying..." : "Complete Registration"}
+              </button>
+              <button onClick={() => setStep("input")} className="text-sm text-gray-500 hover:underline">Edit email address</button>
+            </div>
+          )}
+        </div>
+      </main>
     </div>
   );
 }
