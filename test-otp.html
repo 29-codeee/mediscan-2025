@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MediScan OTP Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+        .step {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .step.active {
+            border-color: #007bff;
+            background-color: #f8f9fa;
+        }
+        input, button {
+            padding: 10px;
+            margin: 5px;
+            border-radius: 5px;
+            border: 1px solid #ddd;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            cursor: pointer;
+            border: none;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .result {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 MediScan OTP Test</h1>
+        <p>Test your email OTP functionality</p>
+
+        <div class="step active" id="step1">
+            <h3>Step 1: Enter Email</h3>
+            <input type="email" id="emailInput" placeholder="your@email.com" style="width: 300px;">
+            <button onclick="sendOTP()">Send OTP</button>
+            <div id="sendResult"></div>
+        </div>
+
+        <div class="step" id="step2">
+            <h3>Step 2: Enter OTP</h3>
+            <input type="text" id="otpInput" placeholder="000000" maxlength="6" style="width: 150px;">
+            <button onclick="verifyOTP()">Verify OTP</button>
+            <div id="verifyResult"></div>
+        </div>
+
+        <div class="step" id="step3">
+            <h3>Step 3: Success!</h3>
+            <p>✅ Your OTP system is working correctly!</p>
+            <button onclick="resetTest()">Test Again</button>
+        </div>
+    </div>
+
+    <script>
+        let currentEmail = '';
+
+        async function sendOTP() {
+            const email = document.getElementById('emailInput').value;
+            if (!email) {
+                showResult('sendResult', 'Please enter an email address', 'error');
+                return;
+            }
+
+            currentEmail = email;
+            const button = event.target;
+            button.disabled = true;
+            button.textContent = 'Sending...';
+
+            try {
+                const response = await fetch('/api/send-otp', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        to: email,
+                        type: 'email',
+                    }),
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showResult('sendResult', `✅ OTP sent to ${email}!`, 'success');
+                    if (data.otp) {
+                        showResult('sendResult', `🔑 Demo OTP: ${data.otp}`, 'info');
+                    }
+                    document.getElementById('step1').classList.remove('active');
+                    document.getElementById('step2').classList.add('active');
+                } else {
+                    showResult('sendResult', `❌ Error: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showResult('sendResult', `❌ Network error: ${error.message}`, 'error');
+            }
+
+            button.disabled = false;
+            button.textContent = 'Send OTP';
+        }
+
+        async function verifyOTP() {
+            const otp = document.getElementById('otpInput').value;
+            if (!otp || otp.length !== 6) {
+                showResult('verifyResult', 'Please enter a valid 6-digit OTP', 'error');
+                return;
+            }
+
+            const button = event.target;
+            button.disabled = true;
+            button.textContent = 'Verifying...';
+
+            try {
+                const response = await fetch('/api/verify-otp', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        to: currentEmail,
+                        otp: otp,
+                    }),
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showResult('verifyResult', '✅ OTP verified successfully!', 'success');
+                    document.getElementById('step2').classList.remove('active');
+                    document.getElementById('step3').classList.add('active');
+                } else {
+                    showResult('verifyResult', `❌ Error: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showResult('verifyResult', `❌ Network error: ${error.message}`, 'error');
+            }
+
+            button.disabled = false;
+            button.textContent = 'Verify OTP';
+        }
+
+        function resetTest() {
+            currentEmail = '';
+            document.getElementById('emailInput').value = '';
+            document.getElementById('otpInput').value = '';
+            document.getElementById('sendResult').innerHTML = '';
+            document.getElementById('verifyResult').innerHTML = '';
+
+            document.getElementById('step1').classList.add('active');
+            document.getElementById('step2').classList.remove('active');
+            document.getElementById('step3').classList.remove('active');
+        }
+
+        function showResult(elementId, message, type) {
+            const element = document.getElementById(elementId);
+            element.innerHTML = `<div class="result ${type}">${message}</div>`;
+        }
+    </script>
+</body>
+</html>
