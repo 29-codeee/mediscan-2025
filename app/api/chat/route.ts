@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Get user's recent medications for context
-    let medications = [];
+   let medications: any[] = [];
     if (!userId.startsWith('mock-') && userId !== 'fallback-user') {
       const { data: dbMedications } = await supabase
         .from('medications')
