@@ -7,48 +7,32 @@ import { supabase } from "@/lib/supabase";
 export default function RegisterPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [otp, setOtp] = useState("");
   const [step, setStep] = useState<"input" | "verify">("input");
   const [isLoading, setIsLoading] = useState(false);
 
-  // 1. Send the 6-digit code using signUp / phone OTP
+  // 1. Send the 6-digit code using signUp
   async function sendOtp() {
-    const contact = email || phone;
-    if (!contact) return alert("Enter email or phone");
+    if (!email) return alert("Enter your email address");
     if (!password || password.length < 6) return alert("Enter a password (min 6 characters)");
 
     setIsLoading(true);
     try {
-      if (email) {
-        const { error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            emailRedirectTo: "https://medi-scan-5c2a.vercel.app/dashboard",
-          },
-        });
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: "https://medi-scan-5c2a.vercel.app/dashboard",
+        },
+      });
 
-        if (error) {
-          alert(error.message);
-        } else {
-          setStep("verify");
-          alert("Registration started! Check your email for the 6-digit code.");
-        }
+      if (error) {
+        alert(error.message);
       } else {
-        const response = await fetch("/api/send-otp", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ to: contact, type: "phone", password }),
-        });
-        if (response.ok) {
-          setStep("verify");
-        } else {
-          const data = await response.json();
-          alert(data.error || "Failed to send OTP");
-        }
+        setStep("verify");
+        alert("Registration started! Check your email for the 6-digit code.");
       }
     } catch (error) {
       alert("Error sending verification code");
@@ -61,48 +45,23 @@ export default function RegisterPage() {
     if (otp.length !== 6) return alert("Enter the 6-digit code");
     setIsLoading(true);
     try {
-      if (email) {
-        const { error } = await supabase.auth.verifyOtp({
-          email,
-          token: otp,
-          type: "signup",
-        });
+      const { error } = await supabase.auth.verifyOtp({
+        email,
+        token: otp,
+        type: "signup",
+      });
 
-        if (error) {
-          alert("Verification failed: " + error.message);
-        } else {
-          alert("Registration successful!");
-          router.push("/dashboard");
-        }
+      if (error) {
+        alert("Verification failed: " + error.message);
       } else {
-        const response = await fetch("/api/verify-otp", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ to: phone, otp }),
-        });
-        if (response.ok) {
-          alert("Registration successful!");
-          router.push("/dashboard");
-        } else {
-          const data = await response.json();
-          alert(data.error || "Invalid OTP");
-        }
+        alert("Registration successful!");
+        router.push("/dashboard");
       }
     } catch (error) {
       alert("Error during verification");
     }
     setIsLoading(false);
   }
-
-  const handleContactChange = (value: string) => {
-    if (value.includes("@")) {
-      setEmail(value);
-      setPhone("");
-    } else {
-      setPhone(value);
-      setEmail("");
-    }
-  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-cyan-50">
@@ -161,7 +120,7 @@ export default function RegisterPage() {
                   Sign Up
                 </h2>
                 <p className="text-gray-600 text-center text-sm leading-relaxed">
-                  Create your account using email or phone and verify with a 6-digit code
+                  Enter your email and password to create your account
                 </p>
               </div>
 
@@ -169,13 +128,14 @@ export default function RegisterPage() {
                 <div className="space-y-6">
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-3">
-                      Email or Phone
+                      Email Address
                     </label>
                     <input
-                      type="text"
-                      placeholder="you@example.com or +91 98765 43210"
+                      type="email"
+                      placeholder="your@email.com"
                       className="auth-input w-full text-base py-3 px-4 rounded-xl border-2"
-                      onChange={(e) => handleContactChange(e.target.value)}
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
                       disabled={isLoading}
                     />
                   </div>
@@ -203,17 +163,24 @@ export default function RegisterPage() {
                   </div>
                   <button
                     onClick={sendOtp}
-                    disabled={isLoading}
+                    disabled={isLoading || !email || !password}
                     className="auth-button w-full py-3 text-base font-semibold rounded-xl disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {isLoading ? "Processing..." : "Continue with OTP"}
+                    {isLoading ? (
+                      <div className="flex items-center justify-center auth-loading">
+                        <div className="spinner mr-2"></div>
+                        Sending OTP...
+                      </div>
+                    ) : (
+                      "Continue with OTP"
+                    )}
                   </button>
                 </div>
               ) : (
                 <div className="space-y-6">
                   <p className="text-sm text-gray-600 text-center">
                     Please enter the 6-digit code sent to{" "}
-                    <strong>{email || phone}</strong>
+                    <strong>{email}</strong>
                   </p>
                   <input
                     type="text"
@@ -237,7 +204,7 @@ export default function RegisterPage() {
                     onClick={() => setStep("input")}
                     className="w-full text-sm text-gray-600 hover:text-blue-700 font-medium hover:underline mt-1"
                   >
-                    Edit contact information
+                    Edit email address
                   </button>
                 </div>
               )}
