@@ -90,20 +90,40 @@ export async function POST(request: NextRequest) {
         userId = newUser.id;
         
         // Verify password was saved correctly
-        if (password) {
-          const { data: verifyUser } = await supabase
+        if (password && hash && salt) {
+          // Wait a bit for the insert to complete
+          await new Promise(resolve => setTimeout(resolve, 100));
+          
+          const { data: verifyUser, error: verifyError } = await supabase
             .from('users')
             .select('password_hash, password_salt')
             .eq('id', userId)
-            .single();
+            .maybeSingle();
+          
+          if (verifyError) {
+            console.error('Error verifying password save:', verifyError);
+          }
           
           if (!verifyUser || !verifyUser.password_hash || !verifyUser.password_salt) {
-            console.error('Password was not saved correctly for new user:', userId);
-            // Try to update it again
-            await supabase
+            console.error('Password was not saved correctly for new user:', userId, {
+              expectedHash: hash.substring(0, 10) + '...',
+              expectedSalt: salt.substring(0, 10) + '...',
+              gotHash: verifyUser?.password_hash ? verifyUser.password_hash.substring(0, 10) + '...' : 'null',
+              gotSalt: verifyUser?.password_salt ? verifyUser.password_salt.substring(0, 10) + '...' : 'null'
+            });
+            // Try to update it again with explicit error handling
+            const { error: updateError } = await supabase
               .from('users')
               .update({ password_hash: hash, password_salt: salt })
               .eq('id', userId);
+            
+            if (updateError) {
+              console.error('Failed to update password after verification:', updateError);
+            } else {
+              console.log('Password updated successfully after verification');
+            }
+          } else {
+            console.log('Password verified and saved correctly for user:', userId);
           }
         }
       }

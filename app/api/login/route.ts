@@ -22,25 +22,36 @@ export async function POST(request: NextRequest) {
         .from('users')
         .select('id, email, phone, full_name, is_verified, password_hash, password_salt')
         .eq('email', email)
-        .single();
+        .maybeSingle(); // Use maybeSingle() instead of single() to avoid errors when no user found
       
       if (error) {
         console.error('Error fetching user:', error);
+        // If it's a policy error, log it specifically
+        if (error.message?.includes('policy') || error.message?.includes('RLS')) {
+          console.error('RLS Policy error - user might exist but cannot be read');
+        }
       } else {
         user = data;
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('Exception fetching user:', e);
     }
 
     // If user doesn't exist, return invalid credentials (don't send OTP)
     if (!user) {
+      console.log('User not found for email:', email);
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
     }
 
     // Check if password is set
     if (!user.password_hash || !user.password_salt) {
-      console.error('User exists but password not set:', { email, hasHash: !!user.password_hash, hasSalt: !!user.password_salt });
+      console.error('User exists but password not set:', { 
+        email, 
+        userId: user.id,
+        hasHash: !!user.password_hash, 
+        hasSalt: !!user.password_salt,
+        userData: { ...user, password_hash: 'REDACTED', password_salt: 'REDACTED' }
+      });
       return NextResponse.json({ error: 'Invalid credentials. Please reset your password.' }, { status: 401 });
     }
 
