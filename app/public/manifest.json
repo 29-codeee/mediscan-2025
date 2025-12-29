@@ -1,24 +1,16 @@
 {
-  "name": "MediScan Medical Intelligence",
+  "name": "MediScan",
   "short_name": "MediScan",
-  "description": "AI-powered medical dashboard and prescription scanner.",
+  "description": "Health Intelligence System",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#2563eb",
-  "orientation": "portrait",
   "icons": [
     {
-      "src": "https://cdn-icons-png.flaticon.com/512/2966/2966327.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "https://cdn-icons-png.flaticon.com/512/2966/2966327.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "maskable"
+      "src": "/icon",
+      "sizes": "32x32",
+      "type": "image/png"
     }
   ]
 }
