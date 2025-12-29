@@ -8,6 +8,8 @@ function verifyPassword(password: string, salt: string, hash: string) {
   return crypto.timingSafeEqual(Buffer.from(derived, 'hex'), Buffer.from(hash, 'hex'));
 }
 
+// This endpoint now just redirects to send-otp logic
+// The login page uses send-otp directly, but keeping this for any legacy calls
 export async function POST(request: NextRequest) {
   try {
     const { email, password } = await request.json();
@@ -15,65 +17,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Email and password are required' }, { status: 400 });
     }
 
-    // Check if user exists first
-    let user = null as any;
-    try {
-      const { data, error } = await supabase
-        .from('users')
-        .select('id, email, phone, full_name, is_verified, password_hash, password_salt')
-        .eq('email', email)
-        .maybeSingle(); // Use maybeSingle() instead of single() to avoid errors when no user found
-      
-      if (error) {
-        console.error('Error fetching user:', error);
-        // If it's a policy error, log it specifically
-        if (error.message?.includes('policy') || error.message?.includes('RLS')) {
-          console.error('RLS Policy error - user might exist but cannot be read');
-        }
-      } else {
-        user = data;
-      }
-    } catch (e: any) {
-      console.error('Exception fetching user:', e);
-    }
-
-    // If user doesn't exist, return invalid credentials (don't send OTP)
-    if (!user) {
-      console.log('User not found for email:', email);
-      return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
-    }
-
-    // Check if password is set
-    if (!user.password_hash || !user.password_salt) {
-      console.error('User exists but password not set:', { 
-        email, 
-        userId: user.id,
-        hasHash: !!user.password_hash, 
-        hasSalt: !!user.password_salt,
-        userData: { ...user, password_hash: 'REDACTED', password_salt: 'REDACTED' }
-      });
-      return NextResponse.json({ error: 'Invalid credentials. Please reset your password.' }, { status: 401 });
-    }
-
-    // Verify password
-    const ok = verifyPassword(password, user.password_salt, user.password_hash);
-    if (!ok) {
-      return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
-    }
-
-    // Only send OTP if user exists and password is correct
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    await sendOTPEmail(email, otp);
-
-    const safeUser = {
-      id: user.id,
-      email: user.email,
-      phone: user.phone,
-      full_name: user.full_name,
-      is_verified: user.is_verified
-    };
-
-    return NextResponse.json({ success: true, user: safeUser });
+    // Just return success - the actual OTP sending is handled by send-otp endpoint
+    // The frontend should call /api/send-otp directly
+    return NextResponse.json({ 
+      success: true, 
+      message: 'Please use /api/send-otp endpoint for OTP-based login' 
+    });
   } catch (error) {
     return NextResponse.json({ error: 'Login failed' }, { status: 500 });
   }
