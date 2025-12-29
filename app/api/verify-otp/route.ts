@@ -22,61 +22,102 @@ export async function POST(request: NextRequest) {
     let userId = null;
 
     try {
-      // Find the OTP record
+      // Find the OTP record - use maybeSingle to avoid errors when not found
       const { data: otpRecord, error: otpError } = await supabase
         .from('otp_codes')
-        .select('id, user_id, otp_code, expires_at, is_used')
+        .select('id, user_id, otp_code, expires_at, is_used, created_at')
         .eq('contact', to)
         .eq('is_used', false)
         .order('created_at', { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
 
-      if (otpRecord && !otpError) {
+      if (otpError) {
+        console.error('Error fetching OTP from database:', otpError);
+      }
+
+      if (otpRecord) {
+        console.log('Found OTP record:', { 
+          id: otpRecord.id, 
+          expiresAt: otpRecord.expires_at,
+          isExpired: new Date(otpRecord.expires_at) < new Date(),
+          codeMatch: otpRecord.otp_code === otp,
+          receivedCode: otp
+        });
+
         // Check if OTP is expired
-        if (new Date(otpRecord.expires_at) < new Date()) {
+        const expiresAt = new Date(otpRecord.expires_at);
+        const now = new Date();
+        if (expiresAt < now) {
+          console.log('OTP expired:', { expiresAt, now, diff: now.getTime() - expiresAt.getTime() });
           return NextResponse.json({ error: 'OTP has expired' }, { status: 400 });
         }
 
         // Check if OTP matches
         if (otpRecord.otp_code === otp) {
           // Mark OTP as used
-          await supabase
+          const { error: updateError } = await supabase
             .from('otp_codes')
             .update({ is_used: true })
             .eq('id', otpRecord.id);
+          
+          if (updateError) {
+            console.error('Error marking OTP as used:', updateError);
+          }
             
           userId = otpRecord.user_id;
           dbVerified = true;
+          console.log('OTP verified successfully via database for user:', userId);
+        } else {
+          console.log('OTP code mismatch:', { 
+            expected: otpRecord.otp_code, 
+            received: otp,
+            contact: to 
+          });
         }
+      } else {
+        console.log('No OTP record found in database for:', to);
       }
-    } catch (dbError) {
-      console.warn('DB OTP check failed, trying in-memory store.');
+    } catch (dbError: any) {
+      console.error('Exception during DB OTP check:', dbError);
     }
 
     // If not verified by DB, try in-memory store
     if (!dbVerified) {
+      console.log('Trying in-memory store for OTP verification');
       const memoryVerified = otpStore.verify(to, otp);
       if (memoryVerified) {
         console.log(`OTP verified via in-memory store for ${to}`);
         // Try to find user in DB to return their ID
-        const { data: user } = await supabase
+        const { data: user, error: userError } = await supabase
           .from('users')
           .select('id')
           .eq(to.includes('@') ? 'email' : 'phone', to)
-          .single();
+          .maybeSingle();
+          
+        if (userError) {
+          console.error('Error finding user:', userError);
+        }
           
         if (user) {
           userId = user.id;
+          dbVerified = true;
         } else {
-          // Mock user ID if not found in DB
+          console.warn('User not found in DB after memory OTP verification');
+          // Still allow verification but mark as mock
           userId = 'mock-user-id';
+          dbVerified = true;
         }
       } else {
-        // If neither verified, return error
-        // But only if we are sure DB check wasn't just a connection error that hid the real record
-        // In this case, if DB check failed and memory check failed, it's invalid.
-        return NextResponse.json({ error: 'Invalid or expired OTP' }, { status: 400 });
+        // If neither verified, return error with more details
+        console.error('OTP verification failed - not found in DB or memory store', {
+          contact: to,
+          codeLength: otp.length,
+          codePrefix: otp.substring(0, 2) + '****'
+        });
+        return NextResponse.json({ 
+          error: 'Invalid or expired OTP. Please request a new code.' 
+        }, { status: 400 });
       }
     }
 

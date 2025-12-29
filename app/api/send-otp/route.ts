@@ -136,19 +136,31 @@ export async function POST(request: NextRequest) {
       }
 
       // Store OTP in database
-      const { error: otpError } = await supabase
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+      const { data: insertedOtp, error: otpError } = await supabase
         .from('otp_codes')
         .insert({
           user_id: userId,
           contact: to,
           contact_type: type,
           otp_code: otp,
-          expires_at: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
-        });
+          expires_at: expiresAt.toISOString(),
+        })
+        .select('id, otp_code, expires_at')
+        .single();
 
       if (otpError) {
-        console.error('Error storing OTP in DB:', otpError.message);
+        console.error('Error storing OTP in DB:', otpError);
         throw otpError;
+      }
+      
+      if (insertedOtp) {
+        console.log('OTP stored successfully:', {
+          id: insertedOtp.id,
+          contact: to,
+          expiresAt: insertedOtp.expires_at,
+          codeLength: otp.length
+        });
       }
       
       dbSuccess = true;
