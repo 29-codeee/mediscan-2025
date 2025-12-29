@@ -82,6 +82,20 @@ export async function POST(request: NextRequest) {
 
     // Update user as verified (if we have a real user ID)
     if (userId && userId !== 'mock-user-id') {
+      // First check if user has password set
+      const { data: userCheck } = await supabase
+        .from('users')
+        .select('password_hash, password_salt')
+        .eq('id', userId)
+        .single();
+
+      if (userCheck && (!userCheck.password_hash || !userCheck.password_salt)) {
+        console.error('User verified but password not set. User ID:', userId);
+        return NextResponse.json({ 
+          error: 'Registration incomplete. Password was not saved. Please register again.' 
+        }, { status: 400 });
+      }
+
       const { error: userUpdateError } = await supabase
         .from('users')
         .update({

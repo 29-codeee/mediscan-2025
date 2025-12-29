@@ -18,17 +18,30 @@ export async function POST(request: NextRequest) {
     // Check if user exists first
     let user = null as any;
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('users')
         .select('id, email, phone, full_name, is_verified, password_hash, password_salt')
         .eq('email', email)
         .single();
-      user = data;
-    } catch (e) {}
+      
+      if (error) {
+        console.error('Error fetching user:', error);
+      } else {
+        user = data;
+      }
+    } catch (e) {
+      console.error('Exception fetching user:', e);
+    }
 
     // If user doesn't exist, return invalid credentials (don't send OTP)
-    if (!user || !user.password_hash || !user.password_salt) {
+    if (!user) {
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
+    }
+
+    // Check if password is set
+    if (!user.password_hash || !user.password_salt) {
+      console.error('User exists but password not set:', { email, hasHash: !!user.password_hash, hasSalt: !!user.password_salt });
+      return NextResponse.json({ error: 'Invalid credentials. Please reset your password.' }, { status: 401 });
     }
 
     // Verify password

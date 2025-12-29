@@ -54,13 +54,19 @@ export async function POST(request: NextRequest) {
 
       if (existingUser) {
         userId = existingUser.id;
-        if (password && !existingUser.password_hash) {
+        // If user exists but no password, or password is being updated
+        if (password) {
           const salt = crypto.randomBytes(16).toString('hex');
           const hash = crypto.scryptSync(password, salt, 64).toString('hex');
-          await supabase
+          const { error: updateError } = await supabase
             .from('users')
             .update({ password_hash: hash, password_salt: salt })
             .eq('id', userId);
+          
+          if (updateError) {
+            console.error('Error updating password for existing user:', updateError);
+            throw updateError;
+          }
         }
       } else {
         // Create new user
@@ -82,6 +88,24 @@ export async function POST(request: NextRequest) {
           throw userError;
         }
         userId = newUser.id;
+        
+        // Verify password was saved correctly
+        if (password) {
+          const { data: verifyUser } = await supabase
+            .from('users')
+            .select('password_hash, password_salt')
+            .eq('id', userId)
+            .single();
+          
+          if (!verifyUser || !verifyUser.password_hash || !verifyUser.password_salt) {
+            console.error('Password was not saved correctly for new user:', userId);
+            // Try to update it again
+            await supabase
+              .from('users')
+              .update({ password_hash: hash, password_salt: salt })
+              .eq('id', userId);
+          }
+        }
       }
 
       // Clean up expired OTPs first (optional, ignore error)
