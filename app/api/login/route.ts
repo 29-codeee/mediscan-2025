@@ -15,10 +15,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Email and password are required' }, { status: 400 });
     }
 
-    // Send OTP to email for all login attempts
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    await sendOTPEmail(email, otp);
-
+    // Check if user exists first
     let user = null as any;
     try {
       const { data } = await supabase
@@ -29,14 +26,20 @@ export async function POST(request: NextRequest) {
       user = data;
     } catch (e) {}
 
+    // If user doesn't exist, return invalid credentials (don't send OTP)
     if (!user || !user.password_hash || !user.password_salt) {
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
     }
 
+    // Verify password
     const ok = verifyPassword(password, user.password_salt, user.password_hash);
     if (!ok) {
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
     }
+
+    // Only send OTP if user exists and password is correct
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    await sendOTPEmail(email, otp);
 
     const safeUser = {
       id: user.id,

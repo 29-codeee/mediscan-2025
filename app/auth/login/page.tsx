@@ -33,10 +33,14 @@ export default function LoginPage() {
       if (response.ok) {
         // Successful Login
         localStorage.setItem("mediscan_user", email);
+        if (data.user) localStorage.setItem("mediscan_user_data", JSON.stringify(data.user));
         router.push("/dashboard");
       } else {
-        // If they haven't verified their OTP yet, this usually returns "Invalid credentials"
-        alert(data.error || "Invalid credentials. Please ensure your email is verified.");
+        // Show invalid credentials with option to create account
+        const shouldCreate = confirm(data.error || "Invalid credentials. Would you like to create an account?");
+        if (shouldCreate) {
+          router.push("/auth/register");
+        }
       }
     } catch (error) {
       alert("Login failed. Please check your connection.");
