@@ -227,17 +227,16 @@ export async function POST(request: NextRequest) {
     }
 
     // Return success response
-    // If email failed to send (e.g. Resend limitation), return OTP in response for testing
-    // Otherwise, do NOT return OTP
+    // Always return OTP in response for development/testing (show in dialog)
     const responsePayload: any = {
       success: true,
       message: `OTP sent to your ${type}`,
-      mode: dbSuccess ? 'database' : 'memory_fallback'
+      mode: dbSuccess ? 'database' : 'memory_fallback',
+      otp: otp // Always return OTP for dialog display
     };
 
     if (!emailSent) {
-      responsePayload.otp = otp; // Fallback for testing when email fails
-      responsePayload.message += ' (Check console or use this code for testing)';
+      responsePayload.message += ' (Email sending failed - use code from dialog)';
     }
 
     return NextResponse.json(responsePayload);

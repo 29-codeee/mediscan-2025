@@ -13,6 +13,8 @@ export default function LoginPage() {
   const [otp, setOtp] = useState("");
   const [step, setStep] = useState<"credentials" | "otp">("credentials");
   const [isLoading, setIsLoading] = useState(false);
+  const [showOtpDialog, setShowOtpDialog] = useState(false);
+  const [receivedOtp, setReceivedOtp] = useState("");
 
   // Reset Password State
   const [resetStep, setResetStep] = useState<'none' | 'request' | 'verify'>('none');
@@ -35,8 +37,12 @@ export default function LoginPage() {
       const data = await response.json();
 
       if (response.ok) {
+        // Show OTP in dialog box
+        if (data.otp) {
+          setReceivedOtp(data.otp);
+          setShowOtpDialog(true);
+        }
         setStep("otp");
-        alert("OTP sent to your email! Please check your inbox.");
       } else {
         alert(data.error || "Failed to send OTP. Please try again.");
       }
@@ -253,6 +259,57 @@ export default function LoginPage() {
           © 2025 MediScan. Secure Health Intelligence.
         </footer>
       </div>
+
+      {/* --- OTP DIALOG --- */}
+      {showOtpDialog && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl">
+            <h3 className="text-2xl font-bold mb-2 text-center">Your OTP Code</h3>
+            <p className="text-sm text-gray-500 mb-6 text-center">
+              Use this code to verify your account
+            </p>
+            <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-6 mb-4">
+              <div className="text-center">
+                <p className="text-xs text-gray-600 mb-2">6-Digit Code</p>
+                <p className="text-4xl font-bold text-blue-600 tracking-widest font-mono select-all">
+                  {receivedOtp}
+                </p>
+              </div>
+            </div>
+            <div className="flex space-x-2 mb-4">
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(receivedOtp);
+                  alert("OTP copied to clipboard!");
+                }}
+                className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold py-2 rounded-xl transition-all text-sm"
+              >
+                Copy Code
+              </button>
+              <button
+                onClick={() => {
+                  setOtp(receivedOtp);
+                  setShowOtpDialog(false);
+                }}
+                className="flex-1 bg-green-100 hover:bg-green-200 text-green-700 font-semibold py-2 rounded-xl transition-all text-sm"
+              >
+                Auto-Fill
+              </button>
+            </div>
+            <div className="text-center mb-4">
+              <p className="text-xs text-gray-500">
+                This code expires in 10 minutes
+              </p>
+            </div>
+            <button
+              onClick={() => setShowOtpDialog(false)}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-all"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* --- RESET PASSWORD MODAL --- */}
       {resetStep !== 'none' && (
