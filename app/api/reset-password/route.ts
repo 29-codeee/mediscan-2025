@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
     // Check if code is in users table (verification_token)
     if (user.verification_token && user.token_expires_at) {
       if (user.verification_token === code) {
-        if (new Date(user.token_expires_at) < new Date()) {
+    if (new Date(user.token_expires_at) < new Date()) {
           codeExpired = true;
         } else {
           codeValid = true;

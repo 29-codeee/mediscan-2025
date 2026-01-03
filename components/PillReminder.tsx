@@ -1,8 +1,8 @@
 "use client";
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 interface Medication {
-  id: number;
+  id: string;
   name: string;
   dosage: string;
   time: string;
@@ -18,7 +18,154 @@ export default function PillReminder() {
   const [medications, setMedications] = useState<Medication[]>([]);
   const [conflicts, setConflicts] = useState<string[]>([]);
   const [isChecking, setIsChecking] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [activeAlarm, setActiveAlarm] = useState<Medication | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+  const notificationIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const scheduledNotificationsRef = useRef<Map<string, number>>(new Map());
+
+  // Get user ID on mount
+  useEffect(() => {
+    const userData = localStorage.getItem("mediscan_user_data");
+    if (userData) {
+      try {
+        const user = JSON.parse(userData);
+        setUserId(user.id);
+      } catch (e) {
+        console.error('Error parsing user data:', e);
+      }
+    }
+  }, []);
+
+  // Load medications from database
+  useEffect(() => {
+    if (!userId) return;
+
+    async function loadMedications() {
+      setIsLoading(true);
+      try {
+        const response = await fetch(`/api/medications?userId=${userId}`);
+        const data = await response.json();
+        
+        if (data.success && data.medications) {
+          // Convert database format to component format
+          const formattedMeds = data.medications.map((med: any) => ({
+            id: med.id,
+            name: med.name,
+            dosage: med.dosage || '',
+            time: med.frequency || '', // Using frequency as time for now
+            rxcui: undefined
+          }));
+          setMedications(formattedMeds);
+          
+          // Schedule notifications for all medications
+          formattedMeds.forEach((med: Medication) => {
+            if (med.time) {
+              scheduleNotification(med);
+            }
+          });
+        }
+      } catch (error) {
+        console.error('Error loading medications:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    loadMedications();
+  }, [userId]);
+
+  // Request notification permission on mount
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().then(permission => {
+        if (permission === 'granted') {
+          console.log('Notification permission granted');
+        }
+      });
+    }
+  }, []);
+
+  // Schedule browser notification for a medication
+  function scheduleNotification(med: Medication) {
+    if (!med.time) return;
+
+    const [hours, minutes] = med.time.split(':').map(Number);
+    const now = new Date();
+    const scheduledTime = new Date();
+    scheduledTime.setHours(hours, minutes, 0, 0);
+
+    // If time has passed today, schedule for tomorrow
+    if (scheduledTime < now) {
+      scheduledTime.setDate(scheduledTime.getDate() + 1);
+    }
+
+    const timeUntilNotification = scheduledTime.getTime() - now.getTime();
+    const notificationKey = `${med.id}-${med.time}`;
+
+    // Clear existing notification for this medication
+    const existingTimeout = scheduledNotificationsRef.current.get(notificationKey);
+    if (existingTimeout) {
+      clearTimeout(existingTimeout);
+    }
+
+    // Schedule new notification
+    const timeoutId = setTimeout(() => {
+      if ('Notification' in window && Notification.permission === 'granted') {
+        const notification = new Notification(`💊 Time to take ${med.name}`, {
+          body: `Dosage: ${med.dosage}`,
+          icon: '/logo.svg',
+          badge: '/logo.svg',
+          tag: notificationKey,
+          requireInteraction: true,
+          silent: false
+        });
+
+        notification.onclick = () => {
+          window.focus();
+          notification.close();
+        };
+
+        // Schedule next day's notification
+        scheduleNotification(med);
+      }
+    }, timeUntilNotification);
+
+    scheduledNotificationsRef.current.set(notificationKey, timeoutId as any);
+  }
+
+  // Check for reminders every minute (for in-page alerts)
+  useEffect(() => {
+    if (notificationIntervalRef.current) {
+      clearInterval(notificationIntervalRef.current);
+    }
+
+    notificationIntervalRef.current = setInterval(() => {
+      const now = new Date();
+      const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      
+      const dueMed = medications.find(m => m.time === currentTime);
+      if (dueMed && !activeAlarm) {
+        setActiveAlarm(dueMed);
+        playMelody('alarm');
+        
+        // Also show browser notification if permission granted
+        if ('Notification' in window && Notification.permission === 'granted') {
+          new Notification(`💊 Time to take ${dueMed.name}`, {
+            body: `Dosage: ${dueMed.dosage}`,
+            icon: '/logo.svg',
+            requireInteraction: true
+          });
+        }
+      }
+    }, 60000); // Check every minute
+
+    return () => {
+      if (notificationIntervalRef.current) {
+        clearInterval(notificationIntervalRef.current);
+      }
+    };
+  }, [medications, activeAlarm]);
 
   // Audio context for playing sounds
   const playMelody = (type: 'morning' | 'afternoon' | 'evening' | 'alarm') => {
@@ -35,12 +182,11 @@ export default function PillReminder() {
     const now = ctx.currentTime;
     
     if (type === 'alarm') {
-      // Alarm chime (Major Triad)
       oscillator.type = 'sine';
-      oscillator.frequency.setValueAtTime(523.25, now); // C5
-      oscillator.frequency.setValueAtTime(659.25, now + 0.2); // E5
-      oscillator.frequency.setValueAtTime(783.99, now + 0.4); // G5
-      oscillator.frequency.setValueAtTime(1046.50, now + 0.6); // C6
+      oscillator.frequency.setValueAtTime(523.25, now);
+      oscillator.frequency.setValueAtTime(659.25, now + 0.2);
+      oscillator.frequency.setValueAtTime(783.99, now + 0.4);
+      oscillator.frequency.setValueAtTime(1046.50, now + 0.6);
       
       gainNode.gain.setValueAtTime(0.3, now);
       gainNode.gain.exponentialRampToValueAtTime(0.01, now + 1.5);
@@ -48,7 +194,6 @@ export default function PillReminder() {
       oscillator.start(now);
       oscillator.stop(now + 1.5);
     } else if (type === 'morning') {
-      // Gentle morning melody
       oscillator.type = 'triangle';
       oscillator.frequency.setValueAtTime(440, now);
       oscillator.frequency.linearRampToValueAtTime(554.37, now + 0.5);
@@ -57,7 +202,6 @@ export default function PillReminder() {
       oscillator.start(now);
       oscillator.stop(now + 2);
     } else if (type === 'afternoon') {
-      // Upbeat
       oscillator.type = 'square';
       oscillator.frequency.setValueAtTime(440, now);
       oscillator.frequency.setValueAtTime(880, now + 0.2);
@@ -66,7 +210,6 @@ export default function PillReminder() {
       oscillator.start(now);
       oscillator.stop(now + 0.5);
     } else {
-      // Evening lullaby
       oscillator.type = 'sine';
       oscillator.frequency.setValueAtTime(220, now);
       oscillator.frequency.linearRampToValueAtTime(110, now + 2);
@@ -76,31 +219,6 @@ export default function PillReminder() {
       oscillator.stop(now + 3);
     }
   };
-
-  // Check for reminders every 10 seconds
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const now = new Date();
-      const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-      
-      const dueMed = medications.find(m => m.time === currentTime);
-      if (dueMed && !activeAlarm) {
-        setActiveAlarm(dueMed);
-        playMelody('alarm');
-        // Also use browser notification if available
-        if ('Notification' in window && Notification.permission === 'granted') {
-          new Notification(`Time to take ${dueMed.name}`, { body: `Dosage: ${dueMed.dosage}` });
-        }
-      }
-    }, 10000); // Check every 10 seconds
-
-    // Request notification permission
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission();
-    }
-
-    return () => clearInterval(interval);
-  }, [medications, activeAlarm]);
 
   // RxNav API functions
   const searchDrugByName = async (drugName: string) => {
@@ -130,13 +248,11 @@ export default function PillReminder() {
     const newConflicts: string[] = [];
 
     try {
-      // Get RxCUI for new medication
       const drugGroups = await searchDrugByName(newMed.name);
       if (drugGroups.length > 0) {
         const newRxcui = drugGroups[0].conceptProperties?.[0]?.rxcui;
         newMed.rxcui = newRxcui;
 
-        // Check interactions with existing medications
         for (const existingMed of medications) {
           if (existingMed.rxcui) {
             const interactions = await getDrugInteractions(existingMed.rxcui);
@@ -164,9 +280,13 @@ export default function PillReminder() {
 
   const addMedication = async () => {
     if (!medication.name || !medication.dosage || !medication.time) return;
+    if (!userId) {
+      alert("Please sign in to add medications");
+      return;
+    }
 
     const newMed: Medication = {
-      id: Date.now(),
+      id: Date.now().toString(),
       name: medication.name,
       dosage: medication.dosage,
       time: medication.time
@@ -175,17 +295,73 @@ export default function PillReminder() {
     const hasNoConflicts = await checkMedicationConflicts(newMed);
 
     if (hasNoConflicts) {
-      setMedications([...medications, newMed]);
-      setMedication({ name: "", dosage: "", time: "" });
-      alert(`✅ Medication "${newMed.name}" added successfully!`);
+      try {
+        // Save to database
+        const response = await fetch('/api/medications', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId,
+            name: newMed.name,
+            dosage: newMed.dosage,
+            frequency: newMed.time // Store time as frequency
+          })
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.medication) {
+          // Update with database ID
+          newMed.id = data.medication.id;
+          setMedications([...medications, newMed]);
+          setMedication({ name: "", dosage: "", time: "" });
+          
+          // Schedule notification
+          scheduleNotification(newMed);
+          
+          alert(`✅ Medication "${newMed.name}" added successfully!`);
+        } else {
+          alert(data.error || "Failed to save medication");
+        }
+      } catch (error) {
+        console.error('Error saving medication:', error);
+        alert("Failed to save medication. Please try again.");
+      }
     } else {
       alert("⚠️ Potential medication conflicts detected. Please review and consult your healthcare provider.");
     }
   };
 
-  const removeMedication = (id: number) => {
-    setMedications(medications.filter(med => med.id !== id));
-    setConflicts([]);
+  const removeMedication = async (id: string) => {
+    if (!userId) return;
+
+    try {
+      // Delete from database
+      const response = await fetch(`/api/medications?id=${id}&userId=${userId}`, {
+        method: 'DELETE'
+      });
+
+      if (response.ok) {
+        // Remove notification
+        const med = medications.find(m => m.id === id);
+        if (med && med.time) {
+          const notificationKey = `${med.id}-${med.time}`;
+          const timeoutId = scheduledNotificationsRef.current.get(notificationKey);
+          if (timeoutId) {
+            clearTimeout(timeoutId);
+            scheduledNotificationsRef.current.delete(notificationKey);
+          }
+        }
+
+        setMedications(medications.filter(med => med.id !== id));
+        setConflicts([]);
+      } else {
+        alert("Failed to delete medication");
+      }
+    } catch (error) {
+      console.error('Error deleting medication:', error);
+      alert("Failed to delete medication. Please try again.");
+    }
   };
 
   const suggestSong = (time: string) => {
@@ -195,18 +371,36 @@ export default function PillReminder() {
     else return "A soothing evening lullaby for relaxation.";
   };
 
+  if (isLoading) {
+    return (
+      <div className="max-w-4xl mx-auto bg-white rounded-2xl shadow-xl p-8 text-center">
+        <p className="text-gray-500">Loading your medications...</p>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-4xl mx-auto bg-white rounded-2xl shadow-xl overflow-hidden">
       {/* Header */}
       <div className="bg-gradient-to-r from-purple-500 to-pink-500 text-white p-6">
-        <div className="flex items-center space-x-3">
-          <div className="w-12 h-12 bg-white bg-opacity-20 rounded-full flex items-center justify-center">
-            <span className="text-2xl">💊</span>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <div className="w-12 h-12 bg-white bg-opacity-20 rounded-full flex items-center justify-center">
+              <span className="text-2xl">💊</span>
+            </div>
+            <div>
+              <h2 className="text-2xl font-bold">Pill Reminder</h2>
+              <p className="text-purple-100">Smart medication management with safety checks</p>
+            </div>
           </div>
-          <div>
-            <h2 className="text-2xl font-bold">Pill Reminder</h2>
-            <p className="text-purple-100">Smart medication management with safety checks</p>
-          </div>
+          {Notification.permission !== 'granted' && (
+            <button
+              onClick={() => Notification.requestPermission()}
+              className="bg-white bg-opacity-20 hover:bg-opacity-30 px-4 py-2 rounded-lg text-sm"
+            >
+              Enable Notifications
+            </button>
+          )}
         </div>
       </div>
 
