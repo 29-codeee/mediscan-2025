@@ -70,6 +70,14 @@ export default function PrescriptionScanner() {
   const startCamera = async () => {
     try {
       setCameraError(null);
+      
+      // Check if mediaDevices is available
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setCameraError('Camera API not supported in this browser. Please use a modern browser.');
+        return;
+      }
+
+      // Request camera access
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: 'environment', // Use back camera on mobile
@@ -81,11 +89,35 @@ export default function PrescriptionScanner() {
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         streamRef.current = stream;
+        
+        // Wait for video to be ready
+        videoRef.current.onloadedmetadata = () => {
+          if (videoRef.current) {
+            videoRef.current.play().catch(err => {
+              console.error('Error playing video:', err);
+              setCameraError('Error starting camera video. Please try again.');
+            });
+          }
+        };
+        
         setCameraActive(true);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error accessing camera:', error);
-      setCameraError('Unable to access camera. Please check permissions and try again.');
+      let errorMessage = 'Unable to access camera. ';
+      
+      if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+        errorMessage += 'Please allow camera access in your browser settings.';
+      } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
+        errorMessage += 'No camera found on this device.';
+      } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
+        errorMessage += 'Camera is already in use by another application.';
+      } else {
+        errorMessage += 'Please check permissions and try again.';
+      }
+      
+      setCameraError(errorMessage);
+      setCameraActive(false);
     }
   };
 
@@ -124,6 +156,16 @@ export default function PrescriptionScanner() {
     }, 'image/jpeg', 0.8);
   };
 
+  // Auto-start camera when switching to camera mode
+  useEffect(() => {
+    if (captureMode === 'camera' && !cameraActive && !cameraError) {
+      startCamera().catch(err => {
+        console.error('Auto-start camera failed:', err);
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [captureMode, cameraActive, cameraError]);
+
   // Cleanup camera on unmount
   useEffect(() => {
     return () => {
@@ -132,17 +174,31 @@ export default function PrescriptionScanner() {
   }, []);
 
   const handleScan = async () => {
-    if (!image) return;
+    if (!image) {
+      alert("Please select or capture an image first");
+      return;
+    }
 
     setLoading(true);
+    setScannedData(null);
+    setDrugInfo(null);
+    
     try {
       // Convert image to base64
       const reader = new FileReader();
       const imageDataPromise = new Promise<string>((resolve, reject) => {
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = reject;
+        reader.onload = () => {
+          const result = reader.result as string;
+          if (!result) {
+            reject(new Error('Failed to read image'));
+            return;
+          }
+          resolve(result);
+        };
+        reader.onerror = () => reject(new Error('Error reading image file'));
         reader.readAsDataURL(image);
       });
+      
       const imageData = await imageDataPromise;
 
       // Get user ID
@@ -151,7 +207,7 @@ export default function PrescriptionScanner() {
         const userData = localStorage.getItem('mediscan_user_data');
         if (userData) {
           const user = JSON.parse(userData);
-          userId = user.id;
+          userId = user.id || userId;
         }
       } catch (e) {
         console.warn('Could not parse user data', e);
@@ -172,40 +228,53 @@ export default function PrescriptionScanner() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || 'Scan failed');
+        throw new Error(data.error || 'Scan failed. Please try again.');
       }
 
-      const prescriptionData = data.data || data; // API returns { data: ... }
+      const prescriptionData = data.data || data;
 
-      // Map API response to UI format
-      // The API returns { medications: [...], ... }
-      // The UI expects scannedData to display simple result, but let's see how it uses it.
-      // The UI code below uses: data.medication, data.strength, etc.
-      // But the API returns a list of medications.
-      // We should update the UI to handle the list, or just pick the first one for the demo box.
+      if (!prescriptionData || !prescriptionData.medications || prescriptionData.medications.length === 0) {
+        throw new Error('No medications found in the prescription. Please ensure the image is clear and try again.');
+      }
       
-      const firstMed = prescriptionData.medications?.[0] || {};
+      // Map API response to UI format
+      const firstMed = prescriptionData.medications[0];
       
       const uiData = {
-        medication: firstMed.name || "Unknown",
-        strength: firstMed.dosage || "Unknown",
-        frequency: firstMed.frequency || "Unknown",
-        timing: firstMed.instructions || "Unknown"
+        medication: firstMed.name || "Not found",
+        strength: firstMed.dosage || "Not specified",
+        frequency: firstMed.frequency || "Not specified",
+        timing: firstMed.instructions || firstMed.duration || "Not specified"
       };
 
       setScannedData(uiData);
 
       // Get real drug information from RxNav for the first medication
-      if (uiData.medication !== "Unknown") {
-        const info = await getDrugInfo(uiData.medication);
-        setDrugInfo(info);
+      if (uiData.medication && uiData.medication !== "Not found") {
+        try {
+          const info = await getDrugInfo(uiData.medication);
+          setDrugInfo(info);
+        } catch (drugInfoError) {
+          console.warn('Could not fetch drug info:', drugInfoError);
+          // Continue without drug info
+        }
       }
 
-    } catch (error) {
-      console.error(error);
-      setScannedData({ medication: "Error", strength: "Error", frequency: "Error", timing: "Error" });
+      alert("✅ Prescription scanned successfully!");
+
+    } catch (error: any) {
+      console.error('Scan error:', error);
+      const errorMessage = error.message || 'Failed to scan prescription. Please check your image and try again.';
+      alert(`❌ ${errorMessage}`);
+      setScannedData({ 
+        medication: "Error", 
+        strength: "Error", 
+        frequency: "Error", 
+        timing: "Error" 
+      });
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (
@@ -241,9 +310,11 @@ export default function PrescriptionScanner() {
               📁 Upload File
             </button>
             <button
-              onClick={() => {
+              onClick={async () => {
                 setCaptureMode('camera');
-                if (!cameraActive) startCamera();
+                if (!cameraActive) {
+                  await startCamera();
+                }
               }}
               className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
                 captureMode === 'camera'
@@ -283,11 +354,18 @@ export default function PrescriptionScanner() {
                     playsInline
                     muted
                     className="w-full h-64 object-cover"
+                    style={{ transform: 'scaleX(-1)' }} // Mirror the video for better UX
                   />
-                  <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex space-x-4">
+                  <div className="absolute inset-0 border-4 border-white border-dashed rounded-lg m-4 pointer-events-none">
+                    <div className="absolute top-2 left-2 w-6 h-6 border-t-2 border-l-2 border-white"></div>
+                    <div className="absolute top-2 right-2 w-6 h-6 border-t-2 border-r-2 border-white"></div>
+                    <div className="absolute bottom-2 left-2 w-6 h-6 border-b-2 border-l-2 border-white"></div>
+                    <div className="absolute bottom-2 right-2 w-6 h-6 border-b-2 border-r-2 border-white"></div>
+                  </div>
+                  <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex space-x-4 z-10">
                     <button
                       onClick={capturePhoto}
-                      className="bg-white text-gray-900 px-6 py-3 rounded-full font-medium hover:bg-gray-100 transition-colors flex items-center space-x-2"
+                      className="bg-white text-gray-900 px-6 py-3 rounded-full font-medium hover:bg-gray-100 transition-colors flex items-center space-x-2 shadow-lg"
                     >
                       <span>📸 Capture</span>
                     </button>
@@ -296,42 +374,52 @@ export default function PrescriptionScanner() {
                         stopCamera();
                         setCaptureMode('upload');
                       }}
-                      className="bg-red-500 text-white px-4 py-3 rounded-full font-medium hover:bg-red-600 transition-colors"
+                      className="bg-red-500 text-white px-4 py-3 rounded-full font-medium hover:bg-red-600 transition-colors shadow-lg"
                     >
-                      ✕
+                      ✕ Cancel
                     </button>
                   </div>
                 </div>
               ) : (
                 <div className="h-64 flex items-center justify-center">
                   {cameraError ? (
-                    <div className="text-center text-white">
+                    <div className="text-center text-white p-4">
                       <div className="text-4xl mb-2">📷</div>
-                      <p className="text-sm">{cameraError}</p>
-                      <button
-                        onClick={startCamera}
-                        className="mt-4 bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors"
-                      >
-                        Try Again
-                      </button>
+                      <p className="text-sm mb-4 max-w-xs">{cameraError}</p>
+                      <div className="space-y-2">
+                        <button
+                          onClick={startCamera}
+                          className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors"
+                        >
+                          Try Again
+                        </button>
+                        <p className="text-xs text-gray-400 mt-2">
+                          Make sure you've allowed camera access in your browser settings
+                        </p>
+                      </div>
                     </div>
                   ) : (
                     <div className="text-center text-white">
-                      <div className="text-4xl mb-2">📷</div>
-                      <p className="text-sm mb-4">Camera access needed</p>
+                      <div className="text-4xl mb-2 animate-pulse">📷</div>
+                      <p className="text-sm mb-4">Click to enable camera</p>
                       <button
                         onClick={startCamera}
-                        className="bg-green-500 text-white px-6 py-3 rounded-full font-medium hover:bg-green-600 transition-colors"
+                        className="bg-green-500 text-white px-6 py-3 rounded-full font-medium hover:bg-green-600 transition-colors shadow-lg"
                       >
                         Enable Camera
                       </button>
+                      <p className="text-xs text-gray-400 mt-3">
+                        You'll be asked to allow camera access
+                      </p>
                     </div>
                   )}
                 </div>
               )}
             </div>
             <p className="text-xs text-gray-500 mt-2 text-center">
-              Position your prescription clearly in the frame for best results
+              {cameraActive 
+                ? "Position your prescription clearly in the frame and click Capture"
+                : "Position your prescription clearly in the frame for best results"}
             </p>
           </div>
         )}
