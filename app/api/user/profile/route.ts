@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
 
     const { data: user, error } = await supabase
       .from('users')
-      .select('id, email, phone, full_name, is_verified, created_at, updated_at')
+      .select('id, email, phone, full_name, is_verified, created_at, updated_at, preferences')
       .eq('id', userId)
       .single();
 
@@ -51,7 +51,7 @@ export async function PUT(request: NextRequest) {
         updated_at: new Date().toISOString()
       })
       .eq('id', userId)
-      .select('id, email, phone, full_name, is_verified, created_at, updated_at')
+      .select('id, email, phone, full_name, is_verified, created_at, updated_at, preferences')
       .single();
 
     if (error) {
