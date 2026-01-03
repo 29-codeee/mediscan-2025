@@ -321,7 +321,10 @@ export default function PillReminder() {
           
           alert(`✅ Medication "${newMed.name}" added successfully!`);
         } else {
-          alert(data.error || "Failed to save medication");
+          const errorMsg = data.error || "Failed to save medication";
+          const details = data.details ? `\n\nDetails: ${data.details}` : '';
+          alert(`❌ ${errorMsg}${details}`);
+          console.error('Medication creation error:', data);
         }
       } catch (error) {
         console.error('Error saving medication:', error);

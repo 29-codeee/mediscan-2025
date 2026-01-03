@@ -60,7 +60,17 @@ export async function POST(request: NextRequest) {
 
     if (error) {
       console.error('Error creating medication:', error);
-      return NextResponse.json({ error: 'Failed to create medication' }, { status: 500 });
+      // Provide more specific error message
+      let errorMessage = 'Failed to create medication';
+      if (error.message?.includes('policy') || error.message?.includes('RLS') || error.message?.includes('permission')) {
+        errorMessage = 'Database permission error. Please check RLS policies allow public insert on medications table.';
+      } else if (error.message) {
+        errorMessage = `Failed to create medication: ${error.message}`;
+      }
+      return NextResponse.json({ 
+        error: errorMessage,
+        details: error.message 
+      }, { status: 500 });
     }
 
     return NextResponse.json({
