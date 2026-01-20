@@ -2,11 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useAppLang } from "@/components/useAppLang";
 
 export default function Dashboard() {
   const router = useRouter();
-  const { t } = useAppLang();
   const [user, setUser] = useState<string | null>(null);
 
   useEffect(() => {
@@ -22,7 +20,7 @@ export default function Dashboard() {
 
   const features = [
     {
-      title: t("prescriptionScanner"),
+      title: "MediScan AI",
       desc: "Smart prescription scanning with real drug data & interactions.",
       icon: "🔍",
       path: "/prescription-scanner",
@@ -30,7 +28,7 @@ export default function Dashboard() {
       bgColor: "bg-blue-50"
     },
     {
-      title: t("chatbot"),
+      title: "Healix Chat",
       desc: "AI-powered medical assistant with RxNav integration.",
       icon: "🤖",
       path: "/chatbot",
@@ -38,7 +36,7 @@ export default function Dashboard() {
       bgColor: "bg-purple-50"
     },
     {
-      title: t("pillReminder"),
+      title: "Pill Reminder",
       desc: "Smart medication tracking with conflict detection.",
       icon: "💊",
       path: "/pill-reminder",
@@ -59,7 +57,7 @@ export default function Dashboard() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-cyan-50">
       <div className="text-center">
         <div className="spinner mx-auto mb-4"></div>
-        <p className="text-gray-600 font-medium">{t("loadingMediScan")}</p>
+        <p className="text-gray-600 font-medium">Loading MediScan...</p>
       </div>
     </div>
   );

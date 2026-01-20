@@ -2,13 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { APP_LANG_STORAGE_KEY, type AppLang } from "@/lib/i18n";
-import { useAppLang } from "@/components/useAppLang";
 
 interface UserSettings {
   emailNotifications: boolean;
   emergencyContact: string;
-  language: AppLang;
+  language: string;
   allergies: string;
   bloodGroup: string;
   conditions: string;
@@ -18,13 +16,12 @@ interface UserSettings {
 
 export default function SettingsPage() {
   const router = useRouter();
-  const { t, setAppLang } = useAppLang();
   const [user, setUser] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [settings, setSettings] = useState<UserSettings>({
     emailNotifications: true,
     emergencyContact: "",
-    language: "en-IN",
+    language: "English",
     allergies: "",
     bloodGroup: "",
     conditions: "",
@@ -47,18 +44,14 @@ export default function SettingsPage() {
       const userData = JSON.parse(userStr);
       setUser(userStr);
       setUserId(userData.id || userData.userId);
-      
-      // Load existing settings
       loadSettings(userData.id || userData.userId);
     } catch (e) {
       setUser(userStr);
-      // Try to get userId from user string if it's just an ID
       setUserId(userStr);
       loadSettings(userStr);
     }
   }, [router]);
 
-  // Load caregiver profiles (local-only MVP)
   useEffect(() => {
     try {
       const stored = localStorage.getItem("mediscan_profiles");
@@ -92,50 +85,19 @@ export default function SettingsPage() {
       const response = await fetch(`/api/user/profile?userId=${id}`);
       if (response.ok) {
         const data = await response.json();
-        if (data.user) {
-          // Try to load from user profile first (if preferences column exists)
-          if (data.user.preferences) {
-            setSettings(data.user.preferences);
-            // Also save to localStorage for backup
-            localStorage.setItem(`settings_${id}`, JSON.stringify(data.user.preferences));
-            if (data.user.preferences?.language) {
-              localStorage.setItem(APP_LANG_STORAGE_KEY, data.user.preferences.language);
-              setAppLang(data.user.preferences.language);
-            }
-          } else {
-            // Fallback to localStorage
-            const savedSettings = localStorage.getItem(`settings_${id}`);
-            if (savedSettings) {
-              setSettings(JSON.parse(savedSettings));
-              try {
-                const parsed = JSON.parse(savedSettings);
-                if (parsed?.language) {
-                  localStorage.setItem(APP_LANG_STORAGE_KEY, parsed.language);
-                  setAppLang(parsed.language);
-                }
-              } catch {
-                // ignore
-              }
-            }
-          }
+        if (data.user && data.user.preferences) {
+          setSettings(data.user.preferences);
+          localStorage.setItem(`settings_${id}`, JSON.stringify(data.user.preferences));
+          return;
         }
       }
     } catch (error) {
       console.error('Error loading settings:', error);
-      // Fallback to localStorage
-      const savedSettings = localStorage.getItem(`settings_${id}`);
-      if (savedSettings) {
-        setSettings(JSON.parse(savedSettings));
-        try {
-          const parsed = JSON.parse(savedSettings);
-          if (parsed?.language) {
-            localStorage.setItem(APP_LANG_STORAGE_KEY, parsed.language);
-            setAppLang(parsed.language);
-          }
-        } catch {
-          // ignore
-        }
-      }
+    }
+
+    const savedSettings = localStorage.getItem(`settings_${id}`);
+    if (savedSettings) {
+      setSettings(JSON.parse(savedSettings));
     }
   };
 
@@ -149,36 +111,24 @@ export default function SettingsPage() {
     setMessage(null);
 
     try {
-      // Save to localStorage
       localStorage.setItem(`settings_${userId}`, JSON.stringify(settings));
-      // Also store a simplified allergy list and accessibility flags for other pages
       localStorage.setItem("mediscan_allergies", settings.allergies || "");
       localStorage.setItem("mediscan_accessibility_large_text", String(settings.accessibilityLargeText));
       localStorage.setItem("mediscan_accessibility_high_contrast", String(settings.accessibilityHighContrast));
-      localStorage.setItem(APP_LANG_STORAGE_KEY, settings.language);
-      setAppLang(settings.language);
       
-      // Also save to user profile if there's a preferences field
-      const response = await fetch('/api/user/profile', {
+      await fetch('/api/user/profile', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userId,
           preferences: settings
         })
-      });
+      }).catch(() => {});
 
-      if (response.ok) {
-        setMessage({ type: 'success', text: 'Settings saved successfully!' });
-        setTimeout(() => setMessage(null), 3000);
-      } else {
-        // Even if API fails, settings are saved in localStorage
-        setMessage({ type: 'success', text: 'Settings saved locally!' });
-        setTimeout(() => setMessage(null), 3000);
-      }
+      setMessage({ type: 'success', text: 'Settings saved successfully!' });
+      setTimeout(() => setMessage(null), 3000);
     } catch (error) {
       console.error('Error saving settings:', error);
-      // Settings are still saved in localStorage
       setMessage({ type: 'success', text: 'Settings saved locally!' });
       setTimeout(() => setMessage(null), 3000);
     } finally {
@@ -186,7 +136,7 @@ export default function SettingsPage() {
     }
   };
 
-  if (!user) return <div>{t("loading")}</div>;
+  if (!user) return <div>Loading...</div>;
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -198,13 +148,13 @@ export default function SettingsPage() {
           onClick={() => router.push("/dashboard")}
           className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
         >
-          {t("backToDashboard")}
+          ← Back to Dashboard
         </button>
       </div>
       <div className="p-4 flex justify-center">
         <div className="max-w-2xl w-full">
           <div className="bg-white p-6 rounded-lg shadow">
-            <h2 className="text-xl font-semibold mb-4">{t("settings")}</h2>
+            <h2 className="text-xl font-semibold mb-4">Settings</h2>
             
             {message && (
               <div className={`mb-4 p-3 rounded ${
@@ -281,7 +231,7 @@ export default function SettingsPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium mb-2">
-                  {t("allergies")}
+                  Allergies (comma separated)
                 </label>
                 <input
                   type="text"
@@ -403,15 +353,15 @@ export default function SettingsPage() {
                 </p>
               </div>
               <div>
-                <label className="block text-sm font-medium mb-2">{t("language")}</label>
+                <label className="block text-sm font-medium mb-2">Language</label>
                 <select 
                   className="border p-2 w-full rounded"
                   value={settings.language}
-                  onChange={(e) => setSettings({ ...settings, language: e.target.value as AppLang })}
+                  onChange={(e) => setSettings({ ...settings, language: e.target.value })}
                 >
-                  <option value="en-IN">English (India)</option>
-                  <option value="hi-IN">Hindi (हिन्दी)</option>
-                  <option value="kn-IN">Kannada (ಕನ್ನಡ)</option>
+                  <option>English</option>
+                  <option>Hindi</option>
+                  <option>Kannada</option>
                 </select>
               </div>
               <button 
@@ -419,7 +369,7 @@ export default function SettingsPage() {
                 disabled={loading}
                 className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 disabled:bg-gray-400 disabled:cursor-not-allowed"
               >
-                {loading ? t("saving") : t("saveSettings")}
+                {loading ? 'Saving...' : 'Save Settings'}
               </button>
             </div>
           </div>

@@ -2,13 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useAppLang } from "@/components/useAppLang";
 
 type Profile = { id: string; name: string; relation: string };
 
 export default function EmergencyCardPage() {
   const router = useRouter();
-  const { t } = useAppLang();
   const [userId, setUserId] = useState<string>("");
   const [profileId, setProfileId] = useState<string>("default");
 
@@ -58,7 +56,7 @@ export default function EmergencyCardPage() {
     }
   }, []);
 
-  if (!userId) return <div className="p-6">{t("loading")}</div>;
+  if (!userId) return <div className="p-6">Loading...</div>;
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -71,13 +69,13 @@ export default function EmergencyCardPage() {
           onClick={() => router.push("/dashboard")}
           className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
         >
-          {t("back")}
+          ← Back
         </button>
         <button
           onClick={() => window.print()}
           className="bg-gray-800 text-white px-4 py-2 rounded hover:bg-gray-900"
         >
-          {t("printSavePdf")}
+          Print / Save as PDF
         </button>
       </div>
 
@@ -150,5 +148,3 @@ export default function EmergencyCardPage() {
     </div>
   );
 }
-
-
