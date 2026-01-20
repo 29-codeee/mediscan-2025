@@ -14,8 +14,40 @@ export default function Dashboard() {
   }, []);
 
   const handleLogout = () => {
+    // 1. Get user info to clean up user-specific keys
+    let userId = null;
+    try {
+      const userData = localStorage.getItem("mediscan_user_data");
+      if (userData) {
+        const user = JSON.parse(userData);
+        userId = user.id;
+      }
+    } catch (e) {
+      console.error("Error parsing user data during logout:", e);
+    }
+
+    // 2. Clear Auth
     localStorage.removeItem("mediscan_user");
     localStorage.removeItem("mediscan_user_data");
+
+    // 3. Clear Chatbot Data
+    if (userId) {
+      localStorage.removeItem(`mediscan_chat_history_${userId}`);
+      localStorage.removeItem(`settings_${userId}`);
+    }
+    localStorage.removeItem("mediscan_chat_voice_enabled");
+
+    // 4. Clear Pill Reminder Data
+    if (userId) {
+      localStorage.removeItem(`mediscan_pill_medications:${userId}`);
+    }
+    // Clear global/guest keys to ensure a fresh state for next user
+    localStorage.removeItem("mediscan_pill_medications:guest");
+    localStorage.removeItem("mediscan_pill_medications"); // Check for legacy/direct writes
+    localStorage.removeItem("mediscan_pill_stats");
+    localStorage.removeItem("mediscan_dose_events");
+    localStorage.removeItem("mediscan_allergies");
+
     router.push("/auth/login");
   };
 
