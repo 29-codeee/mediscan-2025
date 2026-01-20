@@ -16,28 +16,12 @@ export default function HealixChatbot() {
 
   const getHistoryKey = (userId: string) => `mediscan_chat_history_${userId}`;
 
-  // Voice + language (Web Speech API)
-  const LANG_STORAGE_KEY = "mediscan_chat_language";
+  // Voice (Web Speech API)
   const VOICE_STORAGE_KEY = "mediscan_chat_voice_enabled";
-  const VOICE_RATE_STORAGE_KEY = "mediscan_chat_voice_rate";
 
-  const SUPPORTED_LANGUAGES: { code: string; label: string }[] = [
-    { code: "en-IN", label: "English (India)" },
-    { code: "hi-IN", label: "Hindi (हिन्दी)" },
-    { code: "kn-IN", label: "Kannada (ಕನ್ನಡ)" },
-    { code: "ta-IN", label: "Tamil (தமிழ்)" },
-    { code: "te-IN", label: "Telugu (తెలుగు)" },
-    { code: "ml-IN", label: "Malayalam (മലയാളം)" },
-    { code: "mr-IN", label: "Marathi (मराठी)" },
-    { code: "bn-IN", label: "Bengali (বাংলা)" },
-    { code: "gu-IN", label: "Gujarati (ગુજરાતી)" },
-    { code: "pa-IN", label: "Punjabi (ਪੰਜਾਬੀ)" },
-    { code: "ur-IN", label: "Urdu (اردو)" },
-  ];
-
-  const [language, setLanguage] = useState<string>("en-IN");
+  const language = "en-IN";
   const [voiceEnabled, setVoiceEnabled] = useState<boolean>(true);
-  const [speechRate, setSpeechRate] = useState<number>(1);
+  const speechRate = 1;
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = (useRef<any>(null) as any);
 
@@ -66,27 +50,12 @@ export default function HealixChatbot() {
 
   useEffect(() => {
     try {
-      const savedLang = localStorage.getItem(LANG_STORAGE_KEY);
-      if (savedLang) setLanguage(savedLang);
       const savedVoice = localStorage.getItem(VOICE_STORAGE_KEY);
       if (savedVoice) setVoiceEnabled(savedVoice === "true");
-      const savedRate = localStorage.getItem(VOICE_RATE_STORAGE_KEY);
-      if (savedRate) {
-        const parsed = Number(savedRate);
-        if (!Number.isNaN(parsed)) setSpeechRate(parsed);
-      }
     } catch {
       // ignore
     }
   }, []);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(LANG_STORAGE_KEY, language);
-    } catch {
-      // ignore
-    }
-  }, [language]);
 
   useEffect(() => {
     try {
@@ -95,14 +64,6 @@ export default function HealixChatbot() {
       // ignore
     }
   }, [voiceEnabled]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(VOICE_RATE_STORAGE_KEY, String(speechRate));
-    } catch {
-      // ignore
-    }
-  }, [speechRate]);
 
   // RxNav API functions
   const searchDrugByName = async (drugName: string) => {
@@ -482,19 +443,6 @@ export default function HealixChatbot() {
           </div>
 
           <div className="flex items-center gap-2">
-            <select
-              value={language}
-              onChange={(e) => setLanguage(e.target.value)}
-              className="text-sm text-gray-800 px-3 py-2 rounded-lg bg-white bg-opacity-90 focus:outline-none"
-              title="Language"
-            >
-              {SUPPORTED_LANGUAGES.map((l) => (
-                <option key={l.code} value={l.code}>
-                  {l.label}
-                </option>
-              ))}
-            </select>
-
             <button
               onClick={() => setVoiceEnabled((v) => !v)}
               className="text-sm px-3 py-2 rounded-lg bg-white bg-opacity-20 hover:bg-opacity-30"
@@ -502,18 +450,6 @@ export default function HealixChatbot() {
             >
               {voiceEnabled ? "🔊 Voice" : "🔇 Voice"}
             </button>
-
-            <select
-              value={speechRate}
-              onChange={(e) => setSpeechRate(Number(e.target.value))}
-              className="text-sm text-gray-800 px-3 py-2 rounded-lg bg-white bg-opacity-90 focus:outline-none"
-              title="Speech speed"
-              disabled={!isSpeechSynthesisSupported}
-            >
-              <option value={0.8}>0.8×</option>
-              <option value={1}>1.0×</option>
-              <option value={1.2}>1.2×</option>
-            </select>
           </div>
         </div>
       </div>
