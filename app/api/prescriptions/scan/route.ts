@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
     // Use Gemini AI to analyze the prescription image
     let prescriptionData;
     try {
-      const model = genAI.getGenerativeModel({ model: 'gemini-flash-latest' });
+      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
       const prompt = `
         Analyze this prescription image and extract the following information in JSON format:

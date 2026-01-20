@@ -87,7 +87,8 @@ Please provide a helpful, medically-informed response.`;
     // Generate AI response
     let aiResponse;
     try {
-      const model = genAI.getGenerativeModel({ model: 'gemini-flash-latest' });
+      // Use standard model name
+      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
       const result = await model.generateContent(systemPrompt);
       const response = await result.response;
       aiResponse = response.text();
