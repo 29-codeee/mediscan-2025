@@ -424,11 +424,19 @@ export default function PrescriptionScanner() {
 
       meds.unshift(newMed);
       localStorage.setItem("mediscan_pill_medications", JSON.stringify(meds));
-      
-      setAddStatus(`✅ Added "${newMed.name}" to Pill Reminder! Time set to ${defaultTime} (you can edit it there).`);
-      
-      // Clear status after 5 seconds
-      setTimeout(() => setAddStatus(null), 5000);
+
+      setAddStatus(`✅ Added "${newMed.name}" to Pill Reminder! Time set to ${defaultTime} (you can edit it there). Redirecting...`);
+
+      // Small delay so user sees the message, then navigate to Pill Reminder page
+      setTimeout(() => {
+        try {
+          if (typeof window !== "undefined") {
+            window.location.href = "/pill-reminder";
+          }
+        } catch {
+          // ignore navigation errors
+        }
+      }, 1200);
     } catch (e) {
       console.error("Failed to add scanned medication to pill reminders", e);
       setAddStatus("❌ Failed to add medication. Please try again.");
