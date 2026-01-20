@@ -447,6 +447,19 @@ export default function HealixChatbot() {
     setIsListening(false);
   };
 
+  const clearHistory = () => {
+    if (confirm("Are you sure you want to clear your chat history?")) {
+      localStorage.removeItem(getHistoryKey(currentUserId));
+      const greetingMessage: Message = {
+        id: 1,
+        text: "Hi! I am Healix, your medical intelligence assistant. How can I help you today?",
+        sender: "healix",
+        timestamp: new Date(),
+      };
+      setMessages([greetingMessage]);
+    }
+  };
+
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
