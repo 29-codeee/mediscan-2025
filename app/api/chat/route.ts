@@ -108,7 +108,22 @@ Please provide a helpful, medically-informed response.`;
 
     if (!aiResponse) {
       console.error('All AI models failed. Last error:', modelError);
-      aiResponse = "I apologize, but I'm currently unable to access my medical knowledge base due to a connection issue. However, generally speaking, for health concerns, it is always best to consult with a healthcare provider. (Note: AI Service is currently in demo mode)";
+      
+      // EMERGENCY FALLBACK: Mock response system for demo stability
+      console.warn('Engaging Emergency Mock Response System');
+      const lowerMsg = message.toLowerCase();
+      
+      if (lowerMsg.includes('hello') || lowerMsg.includes('hi') || lowerMsg.includes('hey')) {
+        aiResponse = "Hello! I am Healix. I'm currently running in offline demo mode because the AI service is experiencing high traffic. How can I help you with your health today?";
+      } else if (lowerMsg.includes('headache') || lowerMsg.includes('pain')) {
+        aiResponse = "I understand you're experiencing pain. While I'm in offline mode, I can generally advise that for headaches, rest and hydration are important. Over-the-counter pain relievers like acetaminophen or ibuprofen may help, but please consult a doctor if the pain is severe or persistent.";
+      } else if (lowerMsg.includes('fever') || lowerMsg.includes('temperature')) {
+        aiResponse = "A fever can be a sign of infection. Monitor your temperature, stay hydrated, and rest. If your temperature exceeds 39°C (102°F) or lasts more than 3 days, please see a doctor immediately.";
+      } else if (lowerMsg.includes('medicine') || lowerMsg.includes('pill') || lowerMsg.includes('drug')) {
+        aiResponse = "It sounds like you're asking about medication. Always follow the instructions on your prescription label. If you have specific questions about interactions or side effects, please consult your pharmacist or doctor.";
+      } else {
+        aiResponse = "I apologize, but I am currently in offline demo mode due to connection limits. I can't provide a specific answer to that question right now, but I recommend consulting a healthcare professional for accurate advice.";
+      }
     }
 
     // Store the conversation in database
