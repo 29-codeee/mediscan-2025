@@ -21,6 +21,7 @@ export default function HealixChatbot() {
 
   const language = "en-IN";
   const [voiceEnabled, setVoiceEnabled] = useState<boolean>(true);
+  const voiceEnabledRef = useRef(voiceEnabled);
   const speechRate = 1;
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = (useRef<any>(null) as any);
@@ -30,7 +31,7 @@ export default function HealixChatbot() {
   const isSpeechSynthesisSupported = typeof window !== "undefined" && "speechSynthesis" in window;
 
   const speakText = (text: string) => {
-    if (!voiceEnabled) return;
+    if (!voiceEnabledRef.current) return;
     if (!isSpeechSynthesisSupported) return;
     if (!text) return;
 
@@ -51,15 +52,23 @@ export default function HealixChatbot() {
   useEffect(() => {
     try {
       const savedVoice = localStorage.getItem(VOICE_STORAGE_KEY);
-      if (savedVoice) setVoiceEnabled(savedVoice === "true");
+      if (savedVoice) {
+        const isEnabled = savedVoice === "true";
+        setVoiceEnabled(isEnabled);
+        voiceEnabledRef.current = isEnabled;
+      }
     } catch {
       // ignore
     }
   }, []);
 
   useEffect(() => {
+    voiceEnabledRef.current = voiceEnabled;
     try {
       localStorage.setItem(VOICE_STORAGE_KEY, String(voiceEnabled));
+      if (!voiceEnabled) {
+        window.speechSynthesis.cancel();
+      }
     } catch {
       // ignore
     }
