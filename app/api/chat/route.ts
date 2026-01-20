@@ -92,7 +92,8 @@ Please provide a helpful, medically-informed response.`;
         throw new Error('GOOGLE_AI_API_KEY is not set');
       }
       
-      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+      // Use gemini-pro which is the most widely supported model
+      const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
       const result = await model.generateContent(systemPrompt);
       const response = await result.response;
       aiResponse = response.text();
