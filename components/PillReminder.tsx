@@ -241,14 +241,42 @@ export default function PillReminder() {
 
   // Request notification permission on mount
   useEffect(() => {
-    if ('Notification' in window && Notification.permission === 'default') {
+    if ('Notification' in window) {
+      if (Notification.permission === 'default') {
+        Notification.requestPermission();
+      }
+    }
+  }, []);
+
+  const sendTestNotification = () => {
+    if (!('Notification' in window)) {
+      alert("This browser does not support desktop notifications");
+      return;
+    }
+
+    if (Notification.permission === 'granted') {
+      try {
+        new Notification("🔔 Test Notification", {
+          body: "If you can see this, your pill reminders are working!",
+          icon: "/logo.svg",
+          badge: "/logo.svg",
+          requireInteraction: true, // Keeps it visible on desktop
+          silent: false
+        });
+      } catch (e) {
+        console.error("Notification error:", e);
+        alert("Error sending notification. On Mobile, ensure you have added this app to Home Screen (iOS) or have settings enabled.");
+      }
+    } else {
       Notification.requestPermission().then(permission => {
         if (permission === 'granted') {
-          console.log('Notification permission granted');
+          sendTestNotification();
+        } else {
+          alert("Notifications are blocked. Please enable them in your browser settings.");
         }
       });
     }
-  }, []);
+  };
 
   // Schedule browser notification for a medication
   function scheduleNotification(med: Medication) {
@@ -621,14 +649,23 @@ export default function PillReminder() {
               <p className="text-purple-100">Smart medication management with safety checks</p>
             </div>
           </div>
-          {Notification.permission !== 'granted' && (
+          <div className="flex gap-2">
             <button
-              onClick={() => Notification.requestPermission()}
-              className="bg-white bg-opacity-20 hover:bg-opacity-30 px-4 py-2 rounded-lg text-sm"
+              onClick={sendTestNotification}
+              className="bg-white bg-opacity-20 hover:bg-opacity-30 px-3 py-2 rounded-lg text-sm transition"
+              title="Test if notifications are working"
             >
-              Enable Notifications
+              🔔 Test
             </button>
-          )}
+            {Notification.permission !== 'granted' && (
+              <button
+                onClick={() => Notification.requestPermission()}
+                className="bg-white bg-opacity-20 hover:bg-opacity-30 px-4 py-2 rounded-lg text-sm transition"
+              >
+                Enable Notifications
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
