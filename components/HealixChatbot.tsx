@@ -432,6 +432,63 @@ export default function HealixChatbot() {
     }
   };
 
+  const clearHistory = async () => {
+    if (!confirm('Are you sure you want to clear all chat history? This cannot be undone.')) {
+      return;
+    }
+
+    // Reset to just greeting
+    const greetingMessage: Message = {
+      id: 1,
+      text: "Hi! I am Healix, your medical intelligence assistant. How can I help you today?",
+      sender: "healix",
+      timestamp: new Date(),
+    };
+    setMessages([greetingMessage]);
+
+    // Clear local storage
+    try {
+      let userId = "mock-user-id";
+      try {
+        const userData = localStorage.getItem("mediscan_user_data");
+        if (userData) {
+          const user = JSON.parse(userData);
+          if (user?.id) userId = user.id;
+        }
+      } catch (e) {
+        // ignore
+      }
+      localStorage.removeItem(getHistoryKey(userId));
+    } catch (err) {
+      console.warn("Failed to clear local history", err);
+    }
+
+    // Clear server-side history if user is logged in
+    try {
+      let userId = "mock-user-id";
+      try {
+        const userData = localStorage.getItem("mediscan_user_data");
+        if (userData) {
+          const user = JSON.parse(userData);
+          if (user?.id) userId = user.id;
+        }
+      } catch (e) {
+        // ignore
+      }
+
+      if (!userId.startsWith("mock-")) {
+        // Try to delete from server (if API endpoint exists)
+        await fetch(`/api/chat?userId=${encodeURIComponent(userId)}`, {
+          method: 'DELETE'
+        }).catch(() => {
+          // Ignore if endpoint doesn't exist
+        });
+      }
+    } catch (err) {
+      // Ignore errors
+    }
+  };
+
   return (
     <div className="max-w-4xl mx-auto bg-white rounded-2xl shadow-xl overflow-hidden">
       {/* Header */}
@@ -448,6 +505,13 @@ export default function HealixChatbot() {
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              onClick={clearHistory}
+              className="text-sm px-3 py-2 rounded-lg bg-white bg-opacity-20 hover:bg-opacity-30"
+              title="Clear chat history"
+            >
+              🗑️ Clear
+            </button>
             <button
               onClick={() => setVoiceEnabled((v) => !v)}
               className="text-sm px-3 py-2 rounded-lg bg-white bg-opacity-20 hover:bg-opacity-30"
