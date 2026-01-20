@@ -84,7 +84,7 @@ Current user question: ${message}
 
 Please provide a helpful, medically-informed response.`;
 
-    // Generate AI response
+    // Generate AI response using direct REST API call
     let aiResponse;
     try {
       // Check if API key is available
@@ -92,27 +92,67 @@ Please provide a helpful, medically-informed response.`;
         throw new Error('GOOGLE_AI_API_KEY is not set');
       }
       
-      // Try Gemini 3 Flash Preview model names (newer preview models use gemini-2.0-flash-exp)
+      // Try models in order - using direct REST API
       const modelNames = [
-        'gemini-2.0-flash-exp',
-        'gemini-2.0-flash-thinking-exp-1219',
         'gemini-1.5-flash',
         'gemini-1.5-pro',
-        'gemini-pro'
+        'gemini-pro',
+        'gemini-2.0-flash-exp'
       ];
       
       let lastError: any = null;
       let success = false;
+      const apiKey = process.env.GOOGLE_AI_API_KEY;
       
       for (const modelName of modelNames) {
         try {
-          const model = genAI.getGenerativeModel({ model: modelName });
-          const result = await model.generateContent(systemPrompt);
-          const response = await result.response;
-          aiResponse = response.text();
-          console.log(`Successfully used model: ${modelName}`);
-          success = true;
-          break;
+          // Try v1beta endpoint first
+          let url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+          let response = await fetch(url, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              contents: [{
+                parts: [{
+                  text: systemPrompt
+                }]
+              }]
+            })
+          });
+          
+          // If v1beta fails, try v1
+          if (!response.ok && response.status === 404) {
+            url = `https://generativelanguage.googleapis.com/v1/models/${modelName}:generateContent?key=${apiKey}`;
+            response = await fetch(url, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                contents: [{
+                  parts: [{
+                    text: systemPrompt
+                  }]
+                }]
+              })
+            });
+          }
+          
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(`HTTP ${response.status}: ${JSON.stringify(errorData)}`);
+          }
+          
+          const data = await response.json();
+          aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || 'No response generated';
+          
+          if (aiResponse && aiResponse !== 'No response generated') {
+            console.log(`Successfully used model: ${modelName}`);
+            success = true;
+            break;
+          }
         } catch (modelError: any) {
           console.warn(`Model ${modelName} failed:`, modelError?.message);
           lastError = modelError;
@@ -125,13 +165,15 @@ Please provide a helpful, medically-informed response.`;
       }
     } catch (aiError: any) {
       console.error('AI Generation failed:', aiError);
-      console.error('Error details:', {
-        message: aiError?.message,
-        status: aiError?.status,
-        statusText: aiError?.statusText,
-        apiKeySet: !!process.env.GOOGLE_AI_API_KEY
-      });
-      aiResponse = `I apologize, but I'm currently unable to access my medical knowledge base. Error: ${aiError?.message || 'Unknown error'}. Please check your API key configuration and try again. For health concerns, it is always best to consult with a healthcare provider.`;
+      // Provide a helpful fallback response instead of showing error
+      aiResponse = `Hello! I'm Healix, your medical assistant. I'm currently experiencing some technical difficulties connecting to my knowledge base. 
+
+For your health question: "${message}", I recommend:
+- Consulting with a healthcare professional for accurate medical advice
+- For emergencies, call emergency services immediately
+- Keep track of your medications and follow prescribed regimens
+
+Please try again in a few moments, or contact your healthcare provider for immediate concerns.`;
     }
 
     // Store the conversation in database
