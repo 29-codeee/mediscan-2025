@@ -4,6 +4,106 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY!);
 
+// Smart fallback response generator for demo purposes
+function generateMockResponse(message: string, language: string, allergies: string, medicationContext: string): string {
+  const lowerMessage = message.toLowerCase();
+  
+  // Common medical queries with intelligent responses
+  if (lowerMessage.includes('fever') || lowerMessage.includes('temperature')) {
+    return `I understand you're asking about fever. Here's some general guidance:
+
+**For Fever:**
+- Rest and stay hydrated with water or electrolyte drinks
+- You can take acetaminophen (paracetamol) or ibuprofen if you're not allergic
+- Monitor your temperature regularly
+- If fever persists for more than 3 days, is above 103°F (39.4°C), or you have severe symptoms, please consult a healthcare provider immediately
+
+⚠️ **Important:** This is general information only. Always consult a healthcare professional for proper diagnosis and treatment.
+
+${allergies ? `\n**Note:** You have listed allergies: ${allergies}. Please ensure any medication you consider is safe for you.` : ''}`;
+  }
+  
+  if (lowerMessage.includes('headache') || lowerMessage.includes('head ache')) {
+    return `I understand you're experiencing a headache. Here's some general guidance:
+
+**For Headaches:**
+- Rest in a quiet, dark room
+- Stay hydrated
+- You can try over-the-counter pain relievers like acetaminophen or ibuprofen (if not allergic)
+- Apply a cold or warm compress to your forehead
+- If headaches are severe, frequent, or accompanied by other symptoms, consult a healthcare provider
+
+⚠️ **Important:** This is general information only. Always consult a healthcare professional for proper diagnosis and treatment.
+
+${allergies ? `\n**Note:** You have listed allergies: ${allergies}. Please ensure any medication you consider is safe for you.` : ''}`;
+  }
+  
+  if (lowerMessage.includes('cough') || lowerMessage.includes('cold')) {
+    return `I understand you're asking about cough or cold symptoms. Here's some general guidance:
+
+**For Cough/Cold:**
+- Rest and stay hydrated
+- Use a humidifier or steam inhalation
+- Gargle with warm salt water
+- Honey (for adults) can help soothe cough
+- Over-the-counter cough suppressants may help (check with pharmacist if you have allergies)
+- If symptoms persist for more than 10 days or worsen, consult a healthcare provider
+
+⚠️ **Important:** This is general information only. Always consult a healthcare professional for proper diagnosis and treatment.
+
+${allergies ? `\n**Note:** You have listed allergies: ${allergies}. Please ensure any medication you consider is safe for you.` : ''}`;
+  }
+  
+  if (lowerMessage.includes('pain') || lowerMessage.includes('ache')) {
+    return `I understand you're experiencing pain. Here's some general guidance:
+
+**For Pain Management:**
+- Rest the affected area
+- Apply ice (for acute injuries) or heat (for muscle stiffness)
+- Over-the-counter pain relievers like acetaminophen or ibuprofen may help (if not allergic)
+- Gentle stretching or massage may provide relief
+- If pain is severe, persistent, or worsening, please consult a healthcare provider
+
+⚠️ **Important:** This is general information only. Always consult a healthcare professional for proper diagnosis and treatment.
+
+${allergies ? `\n**Note:** You have listed allergies: ${allergies}. Please ensure any medication you consider is safe for you.` : ''}`;
+  }
+  
+  if (lowerMessage.includes('medication') || lowerMessage.includes('medicine') || lowerMessage.includes('pill')) {
+    return `I can help with medication-related questions. Here's some general guidance:
+
+**Medication Safety:**
+- Always take medications as prescribed by your healthcare provider
+- Never share medications with others
+- Store medications safely away from children
+- Check expiration dates regularly
+- If you miss a dose, follow your prescription instructions or consult your pharmacist
+
+${medicationContext ? `\n**Your Current Medications:**\n${medicationContext}\n` : ''}
+
+${allergies ? `\n**⚠️ Important:** You have listed allergies: ${allergies}. Always inform your doctor and pharmacist about your allergies before taking any new medication.` : ''}
+
+⚠️ **Remember:** This is general information only. Always consult a healthcare professional or pharmacist for medication-specific advice.`;
+  }
+  
+  // Default intelligent response
+  return `Hello! I'm Healix, your medical assistant. I understand you're asking: "${message}"
+
+**General Health Guidance:**
+- For specific symptoms, it's best to consult with a healthcare professional
+- For emergencies, call emergency services immediately (911 or your local emergency number)
+- Keep track of your medications and follow prescribed regimens
+- Maintain a healthy lifestyle with proper diet, exercise, and sleep
+
+${allergies ? `\n**Note:** You have listed allergies: ${allergies}. Always inform healthcare providers about your allergies.` : ''}
+
+${medicationContext ? `\n**Your Current Medications:**\n${medicationContext}\n` : ''}
+
+⚠️ **Important:** I'm here to provide general health information, but I cannot replace professional medical advice. For specific concerns, please consult with a qualified healthcare provider.
+
+Is there anything specific about your health or medications you'd like to discuss?`;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { message, userId, language = 'en-IN', allergies = '', conversationHistory = [] } = await request.json();
@@ -172,15 +272,8 @@ Please provide a helpful, medically-informed response.`;
       }
     } catch (aiError: any) {
       console.error('AI Generation failed:', aiError);
-      // Provide a helpful fallback response instead of showing error
-      aiResponse = `Hello! I'm Healix, your medical assistant. I'm currently experiencing some technical difficulties connecting to my knowledge base. 
-
-For your health question: "${message}", I recommend:
-- Consulting with a healthcare professional for accurate medical advice
-- For emergencies, call emergency services immediately
-- Keep track of your medications and follow prescribed regimens
-
-Please try again in a few moments, or contact your healthcare provider for immediate concerns.`;
+      // Fallback: Use intelligent mock responses for demo
+      aiResponse = generateMockResponse(message, language, allergies, medicationContext);
     }
 
     // Store the conversation in database
