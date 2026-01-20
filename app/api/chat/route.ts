@@ -86,29 +86,25 @@ Please provide a helpful, medically-informed response.`;
 
     // Generate AI response
     let aiResponse;
-    
-    // Try only the most reliable model first to save requests
-    // gemini-flash-latest maps to the current stable flash model
-    const modelsToTry = ['gemini-flash-latest'];
-    let modelError;
-
-    for (const modelName of modelsToTry) {
-      try {
-        const model = genAI.getGenerativeModel({ model: modelName });
-        const result = await model.generateContent(systemPrompt);
-        const response = await result.response;
-        aiResponse = response.text();
-        
-        if (aiResponse) break; // Success
-      } catch (error) {
-        console.warn(`Model ${modelName} failed:`, error);
-        modelError = error;
+    try {
+      // Check if API key is available
+      if (!process.env.GOOGLE_AI_API_KEY) {
+        throw new Error('GOOGLE_AI_API_KEY is not set');
       }
-    }
-
-    if (!aiResponse) {
-      console.error('All AI models failed. Last error:', modelError);
-      throw modelError; // Throw actual error to frontend instead of fake response
+      
+      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+      const result = await model.generateContent(systemPrompt);
+      const response = await result.response;
+      aiResponse = response.text();
+    } catch (aiError: any) {
+      console.error('AI Generation failed:', aiError);
+      console.error('Error details:', {
+        message: aiError?.message,
+        status: aiError?.status,
+        statusText: aiError?.statusText,
+        apiKeySet: !!process.env.GOOGLE_AI_API_KEY
+      });
+      aiResponse = `I apologize, but I'm currently unable to access my medical knowledge base. Error: ${aiError?.message || 'Unknown error'}. Please check your API key configuration and try again. For health concerns, it is always best to consult with a healthcare provider.`;
     }
 
     // Store the conversation in database
