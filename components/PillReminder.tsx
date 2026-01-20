@@ -39,7 +39,6 @@ export default function PillReminder() {
   const [userId, setUserId] = useState<string | null>(null);
   const notificationIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const scheduledNotificationsRef = useRef<Map<string, number>>(new Map());
-  const [permissionStatus, setPermissionStatus] = useState<NotificationPermission>('default');
 
   // Get user ID on mount
   useEffect(() => {
@@ -60,11 +59,9 @@ export default function PillReminder() {
   const ALLERGY_STORAGE_KEY = "mediscan_allergies";
   const DOSE_EVENTS_KEY = "mediscan_dose_events";
 
-  const storageKey = (base: string, uid: string | null) => (uid ? `${base}:${uid}` : `${base}:guest`);
-
-  const loadMedicationsFromLocal = (uid: string | null) => {
+  const loadMedicationsFromLocal = () => {
     try {
-      const stored = localStorage.getItem(storageKey(LOCAL_STORAGE_KEY, uid));
+      const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
       if (!stored) return [];
       const parsed = JSON.parse(stored);
       if (!Array.isArray(parsed)) return [];
@@ -75,9 +72,9 @@ export default function PillReminder() {
     }
   };
 
-  const saveMedicationsToLocal = (list: Medication[], uid: string | null) => {
+  const saveMedicationsToLocal = (list: Medication[]) => {
     try {
-      localStorage.setItem(storageKey(LOCAL_STORAGE_KEY, uid), JSON.stringify(list));
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(list));
     } catch (error) {
       console.error("Error saving medications to local storage:", error);
     }
@@ -145,22 +142,18 @@ export default function PillReminder() {
   const getAllergyList = (): string[] => {
     try {
       // Prefer structured settings if present
-      let currentUserId = userId;
-      
-      if (!currentUserId) {
-        const userStr = localStorage.getItem("mediscan_user") || localStorage.getItem("mediscan_user_data");
-        if (userStr) {
-          try {
-            const user = JSON.parse(userStr);
-            currentUserId = user.id || user.userId || "";
-          } catch {
-            currentUserId = userStr;
-          }
+      const userStr = localStorage.getItem("mediscan_user");
+      let userId = "";
+      if (userStr) {
+        try {
+          const user = JSON.parse(userStr);
+          userId = user.id || user.userId || "";
+        } catch {
+          userId = userStr;
         }
       }
-
-      if (currentUserId) {
-        const settingsStr = localStorage.getItem(`settings_${currentUserId}`);
+      if (userId) {
+        const settingsStr = localStorage.getItem(`settings_${userId}`);
         if (settingsStr) {
           const settings = JSON.parse(settingsStr);
           if (settings?.allergies) {
@@ -191,6 +184,27 @@ export default function PillReminder() {
 
   // Load medications (try database, fall back to local storage)
   useEffect(() => {
+    const mergeMedicationLists = (serverMeds: Medication[], localMeds: Medication[]): Medication[] => {
+      try {
+        const map = new Map<string, Medication>();
+
+        // Helper key: prefer id, otherwise name+dosage+time
+        const makeKey = (m: Medication) =>
+          m.id || `${m.name.toLowerCase()}|${(m.dosage || '').toLowerCase()}|${(m.time || '').toLowerCase()}`;
+
+        localMeds.forEach((m) => {
+          map.set(makeKey(m), m);
+        });
+        serverMeds.forEach((m) => {
+          map.set(makeKey(m), m); // server overwrites local if same key
+        });
+
+        return Array.from(map.values());
+      } catch {
+        return serverMeds.length ? serverMeds : localMeds;
+      }
+    };
+
     async function loadMedications() {
       setIsLoading(true);
       try {
@@ -201,30 +215,24 @@ export default function PillReminder() {
             const data = await response.json();
 
             if (data.success && data.medications) {
-              // Load local data to preserve client-only fields (like pill counts) that might not be on server
-              const localMeds = loadMedicationsFromLocal(userId);
-
               // Convert database format to component format
-              const formattedMeds = data.medications.map((med: any) => {
-                const localMatch = localMeds.find(lm => lm.id === med.id);
-                return {
-                  id: med.id,
-                  name: med.name,
-                  dosage: med.dosage || '',
-                  time: med.frequency || '', // Using frequency as time for now
-                  rxcui: localMatch?.rxcui, // Preserve rxcui from local if available
-                  pillsRemaining: med.pills_remaining !== undefined ? med.pills_remaining : localMatch?.pillsRemaining,
-                  pillsPerDose: med.pills_per_dose !== undefined ? med.pills_per_dose : (localMatch?.pillsPerDose ?? 1),
-                  refillThreshold: med.refill_threshold !== undefined ? med.refill_threshold : (localMatch?.refillThreshold ?? 5),
-                  refillBy: med.refill_by || localMatch?.refillBy
-                };
-              });
+              const formattedMeds = data.medications.map((med: any) => ({
+                id: med.id,
+                name: med.name,
+                dosage: med.dosage || '',
+                time: med.frequency || '', // Using frequency as time for now
+                rxcui: undefined
+              }));
 
-              setMedications(formattedMeds);
-              saveMedicationsToLocal(formattedMeds, userId);
+              // Merge with any locally stored meds (e.g., added from scanner while offline / API failing)
+              const localMeds = loadMedicationsFromLocal();
+              const merged = mergeMedicationLists(formattedMeds, localMeds);
+
+              setMedications(merged);
+              saveMedicationsToLocal(merged);
 
               // Schedule notifications for all medications
-              formattedMeds.forEach((med: Medication) => {
+              merged.forEach((med: Medication) => {
                 if (med.time) {
                   scheduleNotification(med);
                 }
@@ -235,7 +243,7 @@ export default function PillReminder() {
         }
 
         // If API not available or no user, fall back to local storage
-        const localMeds = loadMedicationsFromLocal(userId);
+        const localMeds = loadMedicationsFromLocal();
         setMedications(localMeds);
         localMeds.forEach((med) => {
           if (med.time) scheduleNotification(med);
@@ -243,7 +251,7 @@ export default function PillReminder() {
       } catch (error) {
         console.error('Error loading medications:', error);
         // On error, still use local so reminders work offline
-        const localMeds = loadMedicationsFromLocal(userId);
+        const localMeds = loadMedicationsFromLocal();
         setMedications(localMeds);
         localMeds.forEach((med) => {
           if (med.time) scheduleNotification(med);
@@ -258,45 +266,14 @@ export default function PillReminder() {
 
   // Request notification permission on mount
   useEffect(() => {
-    if ('Notification' in window) {
-      setPermissionStatus(Notification.permission);
-      if (Notification.permission === 'default') {
-        Notification.requestPermission().then(status => {
-          setPermissionStatus(status);
-        });
-      }
-    }
-  }, []);
-
-  const sendTestNotification = () => {
-    if (!('Notification' in window)) {
-      alert("This browser does not support desktop notifications");
-      return;
-    }
-
-    if (Notification.permission === 'granted') {
-      try {
-        new Notification("🔔 Test Notification", {
-          body: "If you can see this, your pill reminders are working!",
-          icon: "/logo.svg",
-          badge: "/logo.svg",
-          requireInteraction: true, // Keeps it visible on desktop
-          silent: false
-        });
-      } catch (e) {
-        console.error("Notification error:", e);
-        alert("Error sending notification. On Mobile, ensure you have added this app to Home Screen (iOS) or have settings enabled.");
-      }
-    } else {
+    if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission().then(permission => {
         if (permission === 'granted') {
-          sendTestNotification();
-        } else {
-          alert("Notifications are blocked. Please enable them in your browser settings.");
+          console.log('Notification permission granted');
         }
       });
     }
-  };
+  }, []);
 
   // Schedule browser notification for a medication
   function scheduleNotification(med: Medication) {
@@ -534,11 +511,7 @@ export default function PillReminder() {
               userId,
               name: newMed.name,
               dosage: newMed.dosage,
-              frequency: newMed.time, // Store time as frequency
-              pills_remaining: newMed.pillsRemaining,
-              pills_per_dose: newMed.pillsPerDose,
-              refill_threshold: newMed.refillThreshold,
-              refill_by: newMed.refillBy
+              frequency: newMed.time // Store time as frequency
             })
           });
 
@@ -555,7 +528,7 @@ export default function PillReminder() {
 
         const updated = [...medications, newMed];
         setMedications(updated);
-        saveMedicationsToLocal(updated, userId);
+        saveMedicationsToLocal(updated);
         setMedication({ name: "", dosage: "", time: "", pillsRemaining: "", refillBy: "", pillsPerDose: "1", refillThreshold: "5" });
 
         // Schedule notification
@@ -567,7 +540,7 @@ export default function PillReminder() {
         // Still keep it locally so reminders work
         const updated = [...medications, newMed];
         setMedications(updated);
-        saveMedicationsToLocal(updated, userId);
+        saveMedicationsToLocal(updated);
         setMedication({ name: "", dosage: "", time: "", pillsRemaining: "", refillBy: "", pillsPerDose: "1", refillThreshold: "5" });
         scheduleNotification(newMed);
         alert("Medication saved locally. Some online features may not work.");
@@ -632,14 +605,14 @@ export default function PillReminder() {
 
       const remaining = medications.filter(med => med.id !== id);
       setMedications(remaining);
-      saveMedicationsToLocal(remaining, userId);
+      saveMedicationsToLocal(remaining);
       setConflicts([]);
     } catch (error) {
       console.error('Error deleting medication:', error);
       // Even if server fails, remove locally so UI and reminders stay clean
       const remaining = medications.filter(med => med.id !== id);
       setMedications(remaining);
-      saveMedicationsToLocal(remaining, userId);
+      saveMedicationsToLocal(remaining);
       setConflicts([]);
     }
   };
@@ -649,40 +622,6 @@ export default function PillReminder() {
     if (hour < 12) return "A calming morning melody to start your day gently.";
     else if (hour < 18) return "An upbeat afternoon tune to keep you energized.";
     else return "A soothing evening lullaby for relaxation.";
-  };
-
-  const clearAllData = async () => {
-    if (confirm("Are you sure you want to clear all pill reminder data?")) {
-      // 1. Delete from server if logged in
-      if (userId) {
-        await Promise.all(medications.map(med =>
-          fetch(`/api/medications?id=${med.id}&userId=${userId}`, { method: 'DELETE' }).catch(e => console.warn(e))
-        ));
-      }
-
-      // 2. Clear timeouts
-      scheduledNotificationsRef.current.forEach((timeoutId) => clearTimeout(timeoutId));
-      scheduledNotificationsRef.current.clear();
-
-      // 3. Clear local storage
-      localStorage.removeItem(LOCAL_STORAGE_KEY);
-      localStorage.removeItem(storageKey(LOCAL_STORAGE_KEY, userId));
-      localStorage.removeItem(STATS_STORAGE_KEY);
-      localStorage.removeItem(DOSE_EVENTS_KEY);
-
-      // 4. Reset State
-      setMedications([]);
-      setConflicts([]);
-      setAllergyWarnings([]);
-
-      const zeroStats = { taken: 0, missed: 0, streak: 0 };
-      setStats(zeroStats);
-      saveStatsToLocal(zeroStats);
-
-      computeWeekly([]);
-
-      alert("All data cleared.");
-    }
   };
 
   if (isLoading) {
@@ -707,43 +646,14 @@ export default function PillReminder() {
               <p className="text-purple-100">Smart medication management with safety checks</p>
             </div>
           </div>
-          <div className="flex gap-2 items-center">
-            {permissionStatus === 'granted' ? (
-              <span className="bg-green-500 bg-opacity-20 text-white px-3 py-1 rounded-full text-xs font-semibold border border-green-400 flex items-center">
-                <span className="w-2 h-2 bg-green-400 rounded-full mr-2 animate-pulse"></span>
-                Notifications On
-              </span>
-            ) : permissionStatus === 'denied' ? (
-              <span 
-                className="bg-red-500 bg-opacity-20 text-white px-3 py-1 rounded-full text-xs font-semibold border border-red-400 cursor-help"
-                title="Notifications are blocked in your browser settings. Please click the lock icon in the address bar to reset permissions."
-              >
-                Notifications Blocked ⚠️
-              </span>
-            ) : (
-              <button
-                onClick={() => Notification.requestPermission().then(setPermissionStatus)}
-                className="bg-white bg-opacity-20 hover:bg-opacity-30 px-4 py-2 rounded-lg text-sm transition animate-pulse font-semibold"
-              >
-                Enable Notifications
-              </button>
-            )}
-            
+          {Notification.permission !== 'granted' && (
             <button
-              onClick={sendTestNotification}
-              className="bg-white bg-opacity-20 hover:bg-opacity-30 px-3 py-2 rounded-lg text-sm transition"
-              title="Test if notifications are working"
+              onClick={() => Notification.requestPermission()}
+              className="bg-white bg-opacity-20 hover:bg-opacity-30 px-4 py-2 rounded-lg text-sm"
             >
-              🔔 Test
+              Enable Notifications
             </button>
-            <button
-              onClick={clearAllData}
-              className="bg-white bg-opacity-20 hover:bg-opacity-30 px-3 py-2 rounded-lg text-sm transition"
-              title="Clear all medication data"
-            >
-              🗑️ Reset
-            </button>
-          </div>
+          )}
         </div>
       </div>
 
@@ -1009,28 +919,12 @@ export default function PillReminder() {
                   const perDose = activeAlarm.pillsPerDose ?? 1;
                   if (typeof activeAlarm.pillsRemaining === "number") {
                     const updated = medications.map((m) =>
-            m.id === activeAlarm.id
-              ? { ...m, pillsRemaining: Math.max(0, (m.pillsRemaining ?? 0) - perDose) }
-              : m
-          );
-          setMedications(updated);
-          saveMedicationsToLocal(updated, userId);
-          
-          // Sync with database if user is logged in
-          if (userId) {
-            const updatedMed = updated.find(m => m.id === activeAlarm.id);
-            if (updatedMed) {
-              fetch('/api/medications', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  id: activeAlarm.id,
-                  userId: userId,
-                  pills_remaining: updatedMed.pillsRemaining
-                })
-              }).catch(err => console.error("Failed to sync pill count:", err));
-            }
-          }
+                      m.id === activeAlarm.id
+                        ? { ...m, pillsRemaining: Math.max(0, (m.pillsRemaining ?? 0) - perDose) }
+                        : m
+                    );
+                    setMedications(updated);
+                    saveMedicationsToLocal(updated);
                   }
                   setActiveAlarm(null);
                 }}
