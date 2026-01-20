@@ -234,7 +234,14 @@ Please provide a helpful, medically-informed response.`;
             throw new Error('Empty response from model');
           }
         } catch (modelError: any) {
-          console.warn(`❌ Model ${modelName} failed:`, modelError?.message || modelError);
+          const errorMsg = modelError?.message || String(modelError);
+          console.warn(`❌ Model ${modelName} failed:`, errorMsg);
+          
+          // If model is overloaded (503), wait a bit and try next model
+          if (errorMsg.includes('503') || errorMsg.includes('overloaded')) {
+            console.log(`Model ${modelName} is overloaded, trying next model...`);
+          }
+          
           lastError = modelError;
           // Continue to next model
           continue;
