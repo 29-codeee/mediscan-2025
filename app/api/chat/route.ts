@@ -6,7 +6,7 @@ const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY!);
 
 export async function POST(request: NextRequest) {
   try {
-    const { message, userId, conversationHistory = [] } = await request.json();
+    const { message, userId, language = 'en-IN', allergies = '', conversationHistory = [] } = await request.json();
 
     if (!message || !userId) {
       return NextResponse.json({ error: 'Message and user ID are required' }, { status: 400 });
@@ -53,7 +53,12 @@ export async function POST(request: NextRequest) {
         ).join('\n')}`
       : '';
 
-    // Create the AI prompt with medical context
+    const allergiesContext =
+      allergies && String(allergies).trim().length > 0
+        ? `\n\nUser-reported allergies:\n${String(allergies)}\n`
+        : '';
+
+    // Create the AI prompt with medical + allergy context
     const systemPrompt = `You are Healix, an AI medical assistant for MediScan. You provide helpful, accurate medical information and guidance.
 
 IMPORTANT GUIDELINES:
@@ -64,7 +69,16 @@ IMPORTANT GUIDELINES:
 - If discussing medications, remind users to follow their prescribed regimens
 - For emergencies, direct users to call emergency services immediately
 
-${medicationContext}
+ALLERGY & SAFETY RULES:
+- Never recommend or prescribe a specific medication as a replacement for a doctor.
+- If a medication conflicts with the user's allergies or looks unsafe, clearly say it may be unsafe and advise them to contact a doctor or pharmacist for an alternative.
+- You may mention general classes of medicines or over-the-counter options only in very high-level, generic terms and always add a strong disclaimer.
+
+LANGUAGE REQUIREMENT:
+- Respond in the user's selected language: ${language}
+- If the user used a mix of languages, respond primarily in ${language} but keep medical drug names in English where appropriate.
+
+${medicationContext}${allergiesContext}
 
 Current user question: ${message}
 

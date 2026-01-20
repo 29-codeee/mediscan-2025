@@ -39,7 +39,6 @@ export default function HealixChatbot() {
   const [voiceEnabled, setVoiceEnabled] = useState<boolean>(true);
   const [speechRate, setSpeechRate] = useState<number>(1);
   const [isListening, setIsListening] = useState(false);
-  const [isSpeaking, setIsSpeaking] = useState(false);
   const recognitionRef = (useRef<any>(null) as any);
 
   const isSpeechRecognitionSupported =
@@ -59,23 +58,10 @@ export default function HealixChatbot() {
       utterance.lang = language;
       utterance.rate = speechRate;
       utterance.pitch = 1;
-      utterance.onstart = () => setIsSpeaking(true);
-      utterance.onend = () => setIsSpeaking(false);
-      utterance.onerror = () => setIsSpeaking(false);
       window.speechSynthesis.speak(utterance);
     } catch (e) {
       console.warn("Speech synthesis failed", e);
     }
-  };
-
-  const stopSpeaking = () => {
-    if (!isSpeechSynthesisSupported) return;
-    try {
-      window.speechSynthesis.cancel();
-    } catch {
-      // ignore
-    }
-    setIsSpeaking(false);
   };
 
   useEffect(() => {
@@ -144,6 +130,29 @@ export default function HealixChatbot() {
   const checkForDrugQuery = (message: string) => {
     const drugKeywords = ['medication', 'drug', 'pill', 'medicine', 'prescription', 'ibuprofen', 'paracetamol', 'aspirin', 'interaction'];
     return drugKeywords.some(keyword => message.toLowerCase().includes(keyword));
+  };
+
+  const getAllergiesString = () => {
+    try {
+      const userStr = localStorage.getItem("mediscan_user");
+      if (userStr) {
+        try {
+          const user = JSON.parse(userStr);
+          const uid = user.id || user.userId || userStr;
+          const settingsStr = localStorage.getItem(`settings_${uid}`);
+          if (settingsStr) {
+            const settings = JSON.parse(settingsStr);
+            if (settings?.allergies) return String(settings.allergies);
+          }
+        } catch {
+          // ignore
+        }
+      }
+      const raw = localStorage.getItem("mediscan_allergies");
+      return raw || "";
+    } catch {
+      return "";
+    }
   };
 
   // Initialize with greeting + history
@@ -346,6 +355,7 @@ export default function HealixChatbot() {
 
       // If no drug-specific info found, use Healix API for general response
       if (!responseText) {
+        const allergies = getAllergiesString();
         const response = await fetch('/api/chat', {
           method: 'POST',
           headers: {
@@ -354,6 +364,8 @@ export default function HealixChatbot() {
           body: JSON.stringify({
             message: currentMessage,
             userId: userId,
+            language: language,
+            allergies,
           }),
         });
 
@@ -445,12 +457,6 @@ export default function HealixChatbot() {
       // ignore
     }
     setIsListening(false);
-  };
-
-  const replayLastHealix = () => {
-    const last = [...messages].reverse().find((m) => m.sender === "healix" && m.text);
-    if (!last) return;
-    speakText(last.text);
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -551,37 +557,7 @@ export default function HealixChatbot() {
 
       {/* Input Area */}
       <div className="p-6 bg-white border-t">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={replayLastHealix}
-              disabled={!isSpeechSynthesisSupported || !voiceEnabled || messages.length < 2}
-              className="text-xs px-3 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 disabled:bg-gray-100 disabled:text-gray-400"
-              title="Replay last Healix reply"
-            >
-              🔁 Replay last reply
-            </button>
-
-            <button
-              type="button"
-              onClick={stopSpeaking}
-              disabled={!isSpeechSynthesisSupported || !isSpeaking}
-              className="text-xs px-3 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 disabled:bg-gray-100 disabled:text-gray-400"
-              title="Stop speaking"
-            >
-              ⏹ Stop speaking
-            </button>
-          </div>
-
-          {!isSpeechSynthesisSupported && (
-            <span className="text-xs text-amber-600">
-              Voice output isn’t supported in this browser.
-            </span>
-          )}
-        </div>
-
-        <div className="flex space-x-3">
+        <div className="flex space-x-3 mb-2">
           <button
             type="button"
             onClick={isListening ? stopListening : startListening}

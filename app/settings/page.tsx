@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { APP_LANG_STORAGE_KEY, type AppLang } from "@/lib/i18n";
+import { useAppLang } from "@/components/useAppLang";
 
 interface UserSettings {
   emailNotifications: boolean;
   emergencyContact: string;
-  language: string;
+  language: AppLang;
   allergies: string;
   bloodGroup: string;
   conditions: string;
@@ -16,12 +18,13 @@ interface UserSettings {
 
 export default function SettingsPage() {
   const router = useRouter();
+  const { t, setAppLang } = useAppLang();
   const [user, setUser] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [settings, setSettings] = useState<UserSettings>({
     emailNotifications: true,
     emergencyContact: "",
-    language: "English",
+    language: "en-IN",
     allergies: "",
     bloodGroup: "",
     conditions: "",
@@ -95,11 +98,24 @@ export default function SettingsPage() {
             setSettings(data.user.preferences);
             // Also save to localStorage for backup
             localStorage.setItem(`settings_${id}`, JSON.stringify(data.user.preferences));
+            if (data.user.preferences?.language) {
+              localStorage.setItem(APP_LANG_STORAGE_KEY, data.user.preferences.language);
+              setAppLang(data.user.preferences.language);
+            }
           } else {
             // Fallback to localStorage
             const savedSettings = localStorage.getItem(`settings_${id}`);
             if (savedSettings) {
               setSettings(JSON.parse(savedSettings));
+              try {
+                const parsed = JSON.parse(savedSettings);
+                if (parsed?.language) {
+                  localStorage.setItem(APP_LANG_STORAGE_KEY, parsed.language);
+                  setAppLang(parsed.language);
+                }
+              } catch {
+                // ignore
+              }
             }
           }
         }
@@ -110,6 +126,15 @@ export default function SettingsPage() {
       const savedSettings = localStorage.getItem(`settings_${id}`);
       if (savedSettings) {
         setSettings(JSON.parse(savedSettings));
+        try {
+          const parsed = JSON.parse(savedSettings);
+          if (parsed?.language) {
+            localStorage.setItem(APP_LANG_STORAGE_KEY, parsed.language);
+            setAppLang(parsed.language);
+          }
+        } catch {
+          // ignore
+        }
       }
     }
   };
@@ -130,6 +155,8 @@ export default function SettingsPage() {
       localStorage.setItem("mediscan_allergies", settings.allergies || "");
       localStorage.setItem("mediscan_accessibility_large_text", String(settings.accessibilityLargeText));
       localStorage.setItem("mediscan_accessibility_high_contrast", String(settings.accessibilityHighContrast));
+      localStorage.setItem(APP_LANG_STORAGE_KEY, settings.language);
+      setAppLang(settings.language);
       
       // Also save to user profile if there's a preferences field
       const response = await fetch('/api/user/profile', {
@@ -159,7 +186,7 @@ export default function SettingsPage() {
     }
   };
 
-  if (!user) return <div>Loading...</div>;
+  if (!user) return <div>{t("loading")}</div>;
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -171,13 +198,13 @@ export default function SettingsPage() {
           onClick={() => router.push("/dashboard")}
           className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
         >
-          ← Back to Dashboard
+          {t("backToDashboard")}
         </button>
       </div>
       <div className="p-4 flex justify-center">
         <div className="max-w-2xl w-full">
           <div className="bg-white p-6 rounded-lg shadow">
-            <h2 className="text-xl font-semibold mb-4">Settings</h2>
+            <h2 className="text-xl font-semibold mb-4">{t("settings")}</h2>
             
             {message && (
               <div className={`mb-4 p-3 rounded ${
@@ -254,7 +281,7 @@ export default function SettingsPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium mb-2">
-                  Allergies (comma separated)
+                  {t("allergies")}
                 </label>
                 <input
                   type="text"
@@ -376,15 +403,15 @@ export default function SettingsPage() {
                 </p>
               </div>
               <div>
-                <label className="block text-sm font-medium mb-2">Language</label>
+                <label className="block text-sm font-medium mb-2">{t("language")}</label>
                 <select 
                   className="border p-2 w-full rounded"
                   value={settings.language}
-                  onChange={(e) => setSettings({ ...settings, language: e.target.value })}
+                  onChange={(e) => setSettings({ ...settings, language: e.target.value as AppLang })}
                 >
-                  <option>English</option>
-                  <option>Spanish</option>
-                  <option>French</option>
+                  <option value="en-IN">English (India)</option>
+                  <option value="hi-IN">Hindi (हिन्दी)</option>
+                  <option value="kn-IN">Kannada (ಕನ್ನಡ)</option>
                 </select>
               </div>
               <button 
@@ -392,7 +419,7 @@ export default function SettingsPage() {
                 disabled={loading}
                 className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 disabled:bg-gray-400 disabled:cursor-not-allowed"
               >
-                {loading ? 'Saving...' : 'Save Settings'}
+                {loading ? t("saving") : t("saveSettings")}
               </button>
             </div>
           </div>

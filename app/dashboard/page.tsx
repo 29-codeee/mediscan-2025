@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useAppLang } from "@/components/useAppLang";
 
 export default function Dashboard() {
   const router = useRouter();
+  const { t } = useAppLang();
   const [user, setUser] = useState<string | null>(null);
 
   useEffect(() => {
@@ -20,7 +22,7 @@ export default function Dashboard() {
 
   const features = [
     {
-      title: "MediScan AI",
+      title: t("prescriptionScanner"),
       desc: "Smart prescription scanning with real drug data & interactions.",
       icon: "🔍",
       path: "/prescription-scanner",
@@ -28,7 +30,7 @@ export default function Dashboard() {
       bgColor: "bg-blue-50"
     },
     {
-      title: "Healix Chat",
+      title: t("chatbot"),
       desc: "AI-powered medical assistant with RxNav integration.",
       icon: "🤖",
       path: "/chatbot",
@@ -36,36 +38,12 @@ export default function Dashboard() {
       bgColor: "bg-purple-50"
     },
     {
-      title: "Pill Reminder",
+      title: t("pillReminder"),
       desc: "Smart medication tracking with conflict detection.",
       icon: "💊",
       path: "/pill-reminder",
       gradient: "from-emerald-500 to-teal-500",
       bgColor: "bg-emerald-50"
-    },
-    {
-      title: "SOS Emergency",
-      desc: "24/7 emergency response with medical guidance.",
-      icon: "🚨",
-      path: "/sos-emergency",
-      gradient: "from-red-500 to-orange-500",
-      bgColor: "bg-red-50"
-    },
-    {
-      title: "Emergency Card",
-      desc: "Lock-screen friendly medical ID with allergies, meds & SOS contact.",
-      icon: "🪪",
-      path: "/emergency-card",
-      gradient: "from-orange-500 to-amber-500",
-      bgColor: "bg-orange-50"
-    },
-    {
-      title: "Doctor Visit",
-      desc: "One-page summary for your doctor. Export as PDF.",
-      icon: "🧾",
-      path: "/doctor-visit",
-      gradient: "from-indigo-500 to-purple-500",
-      bgColor: "bg-indigo-50"
     },
     {
       title: "Secure Auth",
@@ -81,7 +59,7 @@ export default function Dashboard() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-cyan-50">
       <div className="text-center">
         <div className="spinner mx-auto mb-4"></div>
-        <p className="text-gray-600 font-medium">Loading MediScan...</p>
+        <p className="text-gray-600 font-medium">{t("loadingMediScan")}</p>
       </div>
     </div>
   );
