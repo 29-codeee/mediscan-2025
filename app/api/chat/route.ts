@@ -92,11 +92,37 @@ Please provide a helpful, medically-informed response.`;
         throw new Error('GOOGLE_AI_API_KEY is not set');
       }
       
-      // Use gemini-pro which is the most widely supported model
-      const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
-      const result = await model.generateContent(systemPrompt);
-      const response = await result.response;
-      aiResponse = response.text();
+      // Try Gemini 3 Flash Preview model names (newer preview models use gemini-2.0-flash-exp)
+      const modelNames = [
+        'gemini-2.0-flash-exp',
+        'gemini-2.0-flash-thinking-exp-1219',
+        'gemini-1.5-flash',
+        'gemini-1.5-pro',
+        'gemini-pro'
+      ];
+      
+      let lastError: any = null;
+      let success = false;
+      
+      for (const modelName of modelNames) {
+        try {
+          const model = genAI.getGenerativeModel({ model: modelName });
+          const result = await model.generateContent(systemPrompt);
+          const response = await result.response;
+          aiResponse = response.text();
+          console.log(`Successfully used model: ${modelName}`);
+          success = true;
+          break;
+        } catch (modelError: any) {
+          console.warn(`Model ${modelName} failed:`, modelError?.message);
+          lastError = modelError;
+          continue;
+        }
+      }
+      
+      if (!success) {
+        throw lastError || new Error('All model attempts failed');
+      }
     } catch (aiError: any) {
       console.error('AI Generation failed:', aiError);
       console.error('Error details:', {
