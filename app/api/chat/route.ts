@@ -93,11 +93,13 @@ Please provide a helpful, medically-informed response.`;
       }
       
       // Try models in order - using direct REST API
+      // Start with most common/stable models
       const modelNames = [
         'gemini-1.5-flash',
-        'gemini-1.5-pro',
+        'gemini-1.5-pro', 
         'gemini-pro',
-        'gemini-2.0-flash-exp'
+        'models/gemini-1.5-flash',
+        'models/gemini-pro'
       ];
       
       let lastError: any = null;
@@ -106,52 +108,57 @@ Please provide a helpful, medically-informed response.`;
       
       for (const modelName of modelNames) {
         try {
-          // Try v1beta endpoint first
-          let url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
-          let response = await fetch(url, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              contents: [{
-                parts: [{
-                  text: systemPrompt
-                }]
-              }]
-            })
-          });
+          // Try v1 endpoint first (more stable)
+          const endpoints = [
+            `https://generativelanguage.googleapis.com/v1/models/${modelName}:generateContent?key=${apiKey}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`
+          ];
           
-          // If v1beta fails, try v1
-          if (!response.ok && response.status === 404) {
-            url = `https://generativelanguage.googleapis.com/v1/models/${modelName}:generateContent?key=${apiKey}`;
-            response = await fetch(url, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                contents: [{
-                  parts: [{
-                    text: systemPrompt
+          let response: Response | null = null;
+          let lastEndpointError: any = null;
+          
+          for (const url of endpoints) {
+            try {
+              response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  contents: [{
+                    parts: [{
+                      text: systemPrompt
+                    }]
                   }]
-                }]
-              })
-            });
+                })
+              });
+              
+              if (response.ok) {
+                break; // Success, exit endpoint loop
+              } else {
+                const errorText = await response.text();
+                lastEndpointError = `HTTP ${response.status}: ${errorText}`;
+                response = null;
+              }
+            } catch (fetchError: any) {
+              lastEndpointError = fetchError.message;
+              response = null;
+            }
           }
           
-          if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            throw new Error(`HTTP ${response.status}: ${JSON.stringify(errorData)}`);
+          if (!response || !response.ok) {
+            throw new Error(lastEndpointError || 'Failed to fetch');
           }
           
           const data = await response.json();
-          aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || 'No response generated';
+          aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
           
-          if (aiResponse && aiResponse !== 'No response generated') {
+          if (aiResponse && aiResponse.trim().length > 0) {
             console.log(`Successfully used model: ${modelName}`);
             success = true;
             break;
+          } else {
+            throw new Error('Empty response from API');
           }
         } catch (modelError: any) {
           console.warn(`Model ${modelName} failed:`, modelError?.message);
