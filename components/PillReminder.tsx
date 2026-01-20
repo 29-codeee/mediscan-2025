@@ -39,6 +39,7 @@ export default function PillReminder() {
   const [userId, setUserId] = useState<string | null>(null);
   const notificationIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const scheduledNotificationsRef = useRef<Map<string, number>>(new Map());
+  const [permissionStatus, setPermissionStatus] = useState<NotificationPermission>('default');
 
   // Get user ID on mount
   useEffect(() => {
@@ -242,8 +243,11 @@ export default function PillReminder() {
   // Request notification permission on mount
   useEffect(() => {
     if ('Notification' in window) {
+      setPermissionStatus(Notification.permission);
       if (Notification.permission === 'default') {
-        Notification.requestPermission();
+        Notification.requestPermission().then(status => {
+          setPermissionStatus(status);
+        });
       }
     }
   }, []);
@@ -649,7 +653,28 @@ export default function PillReminder() {
               <p className="text-purple-100">Smart medication management with safety checks</p>
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
+            {permissionStatus === 'granted' ? (
+              <span className="bg-green-500 bg-opacity-20 text-white px-3 py-1 rounded-full text-xs font-semibold border border-green-400 flex items-center">
+                <span className="w-2 h-2 bg-green-400 rounded-full mr-2 animate-pulse"></span>
+                Notifications On
+              </span>
+            ) : permissionStatus === 'denied' ? (
+              <span 
+                className="bg-red-500 bg-opacity-20 text-white px-3 py-1 rounded-full text-xs font-semibold border border-red-400 cursor-help"
+                title="Notifications are blocked in your browser settings. Please click the lock icon in the address bar to reset permissions."
+              >
+                Notifications Blocked ⚠️
+              </span>
+            ) : (
+              <button
+                onClick={() => Notification.requestPermission().then(setPermissionStatus)}
+                className="bg-white bg-opacity-20 hover:bg-opacity-30 px-4 py-2 rounded-lg text-sm transition animate-pulse font-semibold"
+              >
+                Enable Notifications
+              </button>
+            )}
+            
             <button
               onClick={sendTestNotification}
               className="bg-white bg-opacity-20 hover:bg-opacity-30 px-3 py-2 rounded-lg text-sm transition"
@@ -657,14 +682,6 @@ export default function PillReminder() {
             >
               🔔 Test
             </button>
-            {Notification.permission !== 'granted' && (
-              <button
-                onClick={() => Notification.requestPermission()}
-                className="bg-white bg-opacity-20 hover:bg-opacity-30 px-4 py-2 rounded-lg text-sm transition"
-              >
-                Enable Notifications
-              </button>
-            )}
           </div>
         </div>
       </div>

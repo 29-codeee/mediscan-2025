@@ -23,6 +23,7 @@ export default function PrescriptionScanner() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const nativeCameraInputRef = useRef<HTMLInputElement>(null);
 
   // RxNav API functions
   const searchDrugByName = async (drugName: string) => {
@@ -372,6 +373,19 @@ export default function PrescriptionScanner() {
       <div className="p-6">
         {/* Capture Mode Tabs */}
         <div className="mb-6">
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            ref={nativeCameraInputRef}
+            className="hidden"
+            onChange={(e) => {
+              if (e.target.files?.[0]) {
+                setImage(e.target.files[0]);
+                setCaptureMode('upload');
+              }
+            }}
+          />
           <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg">
             <button
               onClick={() => {
@@ -410,12 +424,23 @@ export default function PrescriptionScanner() {
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Upload Prescription Image
             </label>
-            <input
-              type="file"
-              accept="image/*"
-              onChange={(e) => setImage(e.target.files?.[0] || null)}
-              className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-            />
+            <div className="space-y-3">
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => setImage(e.target.files?.[0] || null)}
+                className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+              />
+              <div className="text-center">
+                <span className="text-sm text-gray-500">- OR -</span>
+              </div>
+              <button
+                onClick={() => nativeCameraInputRef.current?.click()}
+                className="w-full py-2 px-4 border border-blue-300 rounded-full text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors flex items-center justify-center space-x-2"
+              >
+                <span>📱 Use Native Camera App</span>
+              </button>
+            </div>
           </div>
         )}
 
@@ -466,9 +491,15 @@ export default function PrescriptionScanner() {
                       <div className="space-y-2">
                         <button
                           onClick={startCamera}
-                          className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors"
+                          className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors w-full mb-2"
                         >
                           Try Again
+                        </button>
+                        <button
+                          onClick={() => nativeCameraInputRef.current?.click()}
+                          className="bg-white text-blue-600 px-4 py-2 rounded-lg hover:bg-gray-100 transition-colors w-full"
+                        >
+                          Use Native Camera
                         </button>
                         <p className="text-xs text-gray-400 mt-2">
                           Make sure you've allowed camera access in your browser settings
