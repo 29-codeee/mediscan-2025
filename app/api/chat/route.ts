@@ -4,6 +4,80 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY!);
 
+function stripMarkdown(text: string): string {
+  if (!text) return text;
+  return text
+    .replace(/^#{1,6}\s+/gm, '') // headings
+    .replace(/\*\*(.*?)\*\*/g, '$1') // bold
+    .replace(/\*(.*?)\*/g, '$1') // italics
+    .replace(/`([^`]+)`/g, '$1') // inline code
+    .replace(/^\s*[-*]\s+/gm, '• ') // bullets
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function isImageRequest(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    m.includes('generate image') ||
+    m.includes('generate a image') ||
+    m.includes('generate picture') ||
+    m.includes('generate a picture') ||
+    m.includes('create image') ||
+    m.includes('create a image') ||
+    m.includes('create picture') ||
+    m.includes('create a picture') ||
+    m.includes('draw ') ||
+    m.includes('make an image') ||
+    m.includes('show me an image') ||
+    m.includes('send an image') ||
+    m.includes('picture of') ||
+    m.includes('photo of')
+  );
+}
+
+async function generateImageWithGemini(apiKey: string, prompt: string): Promise<{ mimeType: string; data: string } | null> {
+  // Uses Gemini image-capable model (per your account model list)
+  const url =
+    `https://generativelanguage.googleapis.com/v1beta/models/models/gemini-2.5-flash-image:generateContent?key=${apiKey}`;
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [
+        {
+          parts: [
+            {
+              text:
+                `Generate ONE image based on this request. ` +
+                `Do not include markdown. If you cannot generate an image, explain briefly.\n\n` +
+                `User request: ${prompt}`,
+            },
+          ],
+        },
+      ],
+    }),
+  });
+
+  if (!res.ok) {
+    const t = await res.text().catch(() => '');
+    throw new Error(`Image API failed: ${res.status} ${t}`);
+  }
+
+  const data: any = await res.json();
+  const parts = data?.candidates?.[0]?.content?.parts;
+  if (!Array.isArray(parts)) return null;
+
+  for (const p of parts) {
+    const inline = p?.inlineData;
+    if (inline?.data && inline?.mimeType) {
+      return { mimeType: inline.mimeType, data: inline.data };
+    }
+  }
+  return null;
+}
+
 // Smart fallback response generator for demo purposes
 function generateMockResponse(message: string, language: string, allergies: string, medicationContext: string): string {
   const lowerMessage = message.toLowerCase();
@@ -178,6 +252,10 @@ LANGUAGE REQUIREMENT:
 - Respond in the user's selected language: ${language}
 - If the user used a mix of languages, respond primarily in ${language} but keep medical drug names in English where appropriate.
 
+FORMAT REQUIREMENT:
+- Respond in plain text only.
+- Do NOT use markdown formatting (no **bold**, no # headings, no code blocks).
+
 ${medicationContext}${allergiesContext}
 
 Current user question: ${message}
@@ -185,15 +263,33 @@ Current user question: ${message}
 Please provide a helpful, medically-informed response.`;
 
     // Generate AI response using Gemini SDK
-    let aiResponse;
+    let aiResponse: string | undefined;
+    let image: { mimeType: string; data: string } | null = null;
     try {
       // Check if API key is available
       if (!process.env.GOOGLE_AI_API_KEY) {
         throw new Error('GOOGLE_AI_API_KEY is not set in environment variables');
       }
 
+      const apiKey = process.env.GOOGLE_AI_API_KEY;
+
+      // If the user explicitly asks for an image, try image model first.
+      if (isImageRequest(message)) {
+        try {
+          image = await generateImageWithGemini(apiKey, message);
+          if (image) {
+            aiResponse = "Here’s the image you requested.";
+          }
+        } catch (e) {
+          // If image generation fails, continue with text response
+          console.warn("Image generation failed, falling back to text:", e);
+        }
+      }
+
+      // If we already generated an image, we can optionally skip text generation.
+      if (!aiResponse) {
       // Initialize Gemini AI with API key
-      const genAIInstance = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
+      const genAIInstance = new GoogleGenerativeAI(apiKey);
       
       // Try models in order - Use actual available models from API
       const modelNames = [
@@ -251,7 +347,6 @@ Please provide a helpful, medically-informed response.`;
       if (!success) {
         // If SDK fails, try direct REST API as last resort
         console.log('SDK failed, trying direct REST API...');
-        const apiKey = process.env.GOOGLE_AI_API_KEY;
         
         // Try REST API with available models
         try {
@@ -285,6 +380,7 @@ Please provide a helpful, medically-informed response.`;
           throw lastError || new Error('All API attempts failed');
         }
       }
+      }
     } catch (aiError: any) {
       console.error('❌ AI Generation completely failed:', aiError);
       console.error('Error details:', {
@@ -297,6 +393,8 @@ Please provide a helpful, medically-informed response.`;
       // Only use fallback if absolutely necessary
       aiResponse = generateMockResponse(message, language, allergies, medicationContext);
     }
+
+    aiResponse = stripMarkdown(aiResponse || '');
 
     // Store the conversation in database
     if (!userId.startsWith('mock-') && userId !== 'fallback-user') {
@@ -320,6 +418,7 @@ Please provide a helpful, medically-informed response.`;
     return NextResponse.json({
       success: true,
       response: aiResponse,
+      image,
       timestamp: new Date().toISOString()
     });
 

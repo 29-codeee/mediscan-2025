@@ -7,13 +7,13 @@ interface Message {
   text: string;
   sender: 'user' | 'healix';
   timestamp: Date;
+  image?: { mimeType: string; data: string } | null;
 }
 
 export default function HealixChatbot() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputMessage, setInputMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [currentUserId, setCurrentUserId] = useState("mock-user-id");
 
   const getHistoryKey = (userId: string) => `mediscan_chat_history_${userId}`;
 
@@ -22,8 +22,6 @@ export default function HealixChatbot() {
 
   const language = "en-IN";
   const [voiceEnabled, setVoiceEnabled] = useState<boolean>(true);
-  const voiceEnabledRef = useRef(voiceEnabled);
-  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const speechRate = 1;
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = (useRef<any>(null) as any);
@@ -32,18 +30,8 @@ export default function HealixChatbot() {
     typeof window !== "undefined" && ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
   const isSpeechSynthesisSupported = typeof window !== "undefined" && "speechSynthesis" in window;
 
-  useEffect(() => {
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      const updateVoices = () => {
-        setVoices(window.speechSynthesis.getVoices());
-      };
-      updateVoices();
-      window.speechSynthesis.onvoiceschanged = updateVoices;
-    }
-  }, []);
-
   const speakText = (text: string) => {
-    if (!voiceEnabledRef.current) return;
+    if (!voiceEnabled) return;
     if (!isSpeechSynthesisSupported) return;
     if (!text) return;
 
@@ -52,11 +40,6 @@ export default function HealixChatbot() {
       window.speechSynthesis.cancel();
 
       const utterance = new SpeechSynthesisUtterance(text);
-      // Find a voice that matches the language, or fallback to any English voice
-      const voice = voices.find((v) => v.lang === language) || voices.find((v) => v.lang.startsWith("en"));
-      if (voice) {
-        utterance.voice = voice;
-      }
       utterance.lang = language;
       utterance.rate = speechRate;
       utterance.pitch = 1;
@@ -69,23 +52,15 @@ export default function HealixChatbot() {
   useEffect(() => {
     try {
       const savedVoice = localStorage.getItem(VOICE_STORAGE_KEY);
-      if (savedVoice) {
-        const isEnabled = savedVoice === "true";
-        setVoiceEnabled(isEnabled);
-        voiceEnabledRef.current = isEnabled;
-      }
+      if (savedVoice) setVoiceEnabled(savedVoice === "true");
     } catch {
       // ignore
     }
   }, []);
 
   useEffect(() => {
-    voiceEnabledRef.current = voiceEnabled;
     try {
       localStorage.setItem(VOICE_STORAGE_KEY, String(voiceEnabled));
-      if (!voiceEnabled) {
-        window.speechSynthesis.cancel();
-      }
     } catch {
       // ignore
     }
@@ -163,7 +138,6 @@ export default function HealixChatbot() {
       } catch (e) {
         console.warn("Could not parse user data for chat history", e);
       }
-      setCurrentUserId(userId);
 
       // Try server-side history first for real users
       if (!userId.startsWith("mock-")) {
@@ -342,6 +316,8 @@ export default function HealixChatbot() {
       }
 
       // If no drug-specific info found, use Healix API for general response
+      let responseImage: { mimeType: string; data: string } | null = null;
+
       if (!responseText) {
         const allergies = getAllergiesString();
         const response = await fetch('/api/chat', {
@@ -361,6 +337,7 @@ export default function HealixChatbot() {
 
         if (response.ok) {
           responseText = data.response;
+          responseImage = data.image || null;
         } else {
           throw new Error(data.error || 'Failed to get response');
         }
@@ -370,7 +347,8 @@ export default function HealixChatbot() {
         id: messages.length + 2,
         text: responseText,
         sender: "healix",
-        timestamp: new Date()
+        timestamp: new Date(),
+        image: responseImage,
       };
 
       setMessages(prev => {
@@ -447,19 +425,6 @@ export default function HealixChatbot() {
     setIsListening(false);
   };
 
-  const clearHistory = () => {
-    if (confirm("Are you sure you want to clear your chat history?")) {
-      localStorage.removeItem(getHistoryKey(currentUserId));
-      const greetingMessage: Message = {
-        id: 1,
-        text: "Hi! I am Healix, your medical intelligence assistant. How can I help you today?",
-        sender: "healix",
-        timestamp: new Date(),
-      };
-      setMessages([greetingMessage]);
-    }
-  };
-
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -483,13 +448,6 @@ export default function HealixChatbot() {
           </div>
 
           <div className="flex items-center gap-2">
-            <button
-              onClick={clearHistory}
-              className="text-sm px-3 py-2 rounded-lg bg-white bg-opacity-20 hover:bg-opacity-30"
-              title="Clear chat history"
-            >
-              🗑️ Clear
-            </button>
             <button
               onClick={() => setVoiceEnabled((v) => !v)}
               className="text-sm px-3 py-2 rounded-lg bg-white bg-opacity-20 hover:bg-opacity-30"
@@ -515,7 +473,18 @@ export default function HealixChatbot() {
                   : 'bg-white text-gray-800 rounded-bl-sm shadow-sm border'
               }`}
             >
-              <p className="text-sm whitespace-pre-line">{message.text}</p>
+              {message.image?.data ? (
+                <div className="space-y-2">
+                  <p className="text-sm whitespace-pre-line">{message.text}</p>
+                  <img
+                    src={`data:${message.image.mimeType};base64,${message.image.data}`}
+                    alt="Generated"
+                    className="rounded-lg border max-w-full"
+                  />
+                </div>
+              ) : (
+                <p className="text-sm whitespace-pre-line">{message.text}</p>
+              )}
               <p className={`text-xs mt-2 ${
                 message.sender === 'user' ? 'text-blue-100' : 'text-gray-400'
               }`}>
