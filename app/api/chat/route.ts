@@ -87,9 +87,9 @@ Please provide a helpful, medically-informed response.`;
     // Generate AI response
     let aiResponse;
     
-    // Try multiple models in order of preference/stability
-    // Reordered to try older stable models if bleeding edge fails
-    const modelsToTry = ['gemini-pro', 'gemini-1.5-flash', 'gemini-flash-latest'];
+    // Try only the most reliable model first to save requests
+    // gemini-flash-latest maps to the current stable flash model
+    const modelsToTry = ['gemini-flash-latest'];
     let modelError;
 
     for (const modelName of modelsToTry) {
@@ -103,46 +103,12 @@ Please provide a helpful, medically-informed response.`;
       } catch (error) {
         console.warn(`Model ${modelName} failed:`, error);
         modelError = error;
-        // Continue to next model
       }
     }
 
     if (!aiResponse) {
       console.error('All AI models failed. Last error:', modelError);
-      
-      // EMERGENCY FALLBACK: Enhanced "Wizard of Oz" mode for demo
-      // Hides the error state and provides helpful canned responses
-      console.warn('Engaging Emergency Mock Response System');
-      const lowerMsg = message.toLowerCase();
-      
-      if (lowerMsg.includes('hello') || lowerMsg.includes('hi') || lowerMsg.includes('hey') || lowerMsg.includes('greetings')) {
-        aiResponse = "Hello! I am Healix, your advanced medical intelligence assistant. I'm ready to help you analyze symptoms or discuss your medication. How can I assist you today?";
-      } 
-      else if (lowerMsg.includes('headache') || lowerMsg.includes('migraine') || lowerMsg.includes('head pain')) {
-        aiResponse = "I understand you're experiencing head pain. For common headaches, medical guidelines typically suggest:\n\n1. Resting in a quiet, dark room\n2. Staying well-hydrated\n3. Applying a cold or warm compress\n\nOver-the-counter pain relievers like acetaminophen or ibuprofen may provide relief. However, if the pain is sudden and severe (like a 'thunderclap'), please seek immediate medical attention.";
-      } 
-      else if (lowerMsg.includes('fever') || lowerMsg.includes('temperature') || lowerMsg.includes('chills')) {
-        aiResponse = "A fever is often the body's way of fighting an infection. Here is some general advice:\n\n• **Rest:** Your body needs energy to fight germs.\n• **Hydrate:** Drink plenty of fluids to prevent dehydration.\n• **Monitor:** Keep track of your temperature.\n\nIf your fever exceeds 39°C (102°F) or persists for more than 3 days, you should consult a healthcare provider.";
-      } 
-      else if (lowerMsg.includes('stomach') || lowerMsg.includes('belly') || lowerMsg.includes('abdominal') || lowerMsg.includes('nausea')) {
-        aiResponse = "Abdominal discomfort can have many causes. General supportive care includes:\n\n• Avoiding solid foods for a few hours\n• Sipping clear fluids (water, broth, sports drinks)\n• Avoiding dairy, caffeine, and alcohol\n\nIf the pain is severe, localized to the lower right, or accompanied by blood, please seek emergency care.";
-      }
-      else if (lowerMsg.includes('cough') || lowerMsg.includes('cold') || lowerMsg.includes('sore throat') || lowerMsg.includes('flu')) {
-        aiResponse = "For cold and flu-like symptoms, supportive care is usually best:\n\n• Get plenty of rest\n• Drink warm fluids (tea with honey can help soothe a sore throat)\n• Use a humidifier to moisten the air\n\nMonitor for difficulty breathing or chest pain, which would require immediate medical attention.";
-      }
-      else if (lowerMsg.includes('medicine') || lowerMsg.includes('pill') || lowerMsg.includes('drug') || lowerMsg.includes('prescription')) {
-        aiResponse = "Regarding medications, it is critical to:\n\n1. Follow the dosage instructions on your prescription label exactly.\n2. Never share prescription medication with others.\n3. Store medicines in a cool, dry place away from children.\n\nIf you are worried about side effects or interactions, please consult your pharmacist or doctor directly.";
-      }
-      else if (lowerMsg.includes('diabetes') || lowerMsg.includes('sugar') || lowerMsg.includes('glucose')) {
-        aiResponse = "Managing blood sugar levels is essential for health. Key pillars include:\n\n• **Diet:** Focusing on whole foods and monitoring carbohydrate intake.\n• **Exercise:** Regular physical activity helps improve insulin sensitivity.\n• **Monitoring:** Checking blood glucose levels as advised by your doctor.\n\nAlways adhere to your prescribed medication or insulin regimen.";
-      }
-      else if (lowerMsg.includes('blood pressure') || lowerMsg.includes('hypertension')) {
-        aiResponse = "Blood pressure management often involves lifestyle changes such as:\n\n• Reducing sodium (salt) intake\n• Regular physical activity\n• Managing stress\n• Limiting alcohol\n\nIt's important to take any prescribed blood pressure medications consistently, even if you feel fine.";
-      }
-      else {
-        // Generic but authoritative-sounding fallback
-        aiResponse = "I've analyzed your query. Based on general medical knowledge, this topic often requires a personalized assessment. \n\nFor now, I recommend:\n1. Monitoring any symptoms closely\n2. Maintaining good hydration and rest\n3. Consulting a healthcare provider if symptoms worsen or persist.\n\nIs there a specific symptom or medication you'd like to know more about?";
-      }
+      throw modelError; // Throw actual error to frontend instead of fake response
     }
 
     // Store the conversation in database
