@@ -37,36 +37,79 @@ export default function PillReminder() {
     }
   }, []);
 
-  // Load medications from database
-  useEffect(() => {
-    if (!userId) return;
+  // Local storage helpers so reminders still work if API / Supabase fails
+  const LOCAL_STORAGE_KEY = "mediscan_pill_medications";
 
+  const loadMedicationsFromLocal = () => {
+    try {
+      const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
+      if (!stored) return [];
+      const parsed = JSON.parse(stored);
+      if (!Array.isArray(parsed)) return [];
+      return parsed as Medication[];
+    } catch (error) {
+      console.error("Error loading medications from local storage:", error);
+      return [];
+    }
+  };
+
+  const saveMedicationsToLocal = (list: Medication[]) => {
+    try {
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(list));
+    } catch (error) {
+      console.error("Error saving medications to local storage:", error);
+    }
+  };
+
+  // Load medications (try database, fall back to local storage)
+  useEffect(() => {
     async function loadMedications() {
       setIsLoading(true);
       try {
-        const response = await fetch(`/api/medications?userId=${userId}`);
-        const data = await response.json();
-        
-        if (data.success && data.medications) {
-          // Convert database format to component format
-          const formattedMeds = data.medications.map((med: any) => ({
-            id: med.id,
-            name: med.name,
-            dosage: med.dosage || '',
-            time: med.frequency || '', // Using frequency as time for now
-            rxcui: undefined
-          }));
-          setMedications(formattedMeds);
-          
-          // Schedule notifications for all medications
-          formattedMeds.forEach((med: Medication) => {
-            if (med.time) {
-              scheduleNotification(med);
+        // If logged in, try the API first
+        if (userId) {
+          const response = await fetch(`/api/medications?userId=${userId}`);
+          if (response.ok) {
+            const data = await response.json();
+
+            if (data.success && data.medications) {
+              // Convert database format to component format
+              const formattedMeds = data.medications.map((med: any) => ({
+                id: med.id,
+                name: med.name,
+                dosage: med.dosage || '',
+                time: med.frequency || '', // Using frequency as time for now
+                rxcui: undefined
+              }));
+
+              setMedications(formattedMeds);
+              saveMedicationsToLocal(formattedMeds);
+
+              // Schedule notifications for all medications
+              formattedMeds.forEach((med: Medication) => {
+                if (med.time) {
+                  scheduleNotification(med);
+                }
+              });
+              return;
             }
-          });
+          }
         }
+
+        // If API not available or no user, fall back to local storage
+        const localMeds = loadMedicationsFromLocal();
+        setMedications(localMeds);
+        localMeds.forEach((med) => {
+          if (med.time) scheduleNotification(med);
+        });
       } catch (error) {
         console.error('Error loading medications:', error);
+        // On error, still use local so reminders work offline
+        const localMeds = loadMedicationsFromLocal();
+        setMedications(localMeds);
+        localMeds.forEach((med) => {
+          if (med.time) scheduleNotification(med);
+        });
       } finally {
         setIsLoading(false);
       }
@@ -280,10 +323,6 @@ export default function PillReminder() {
 
   const addMedication = async () => {
     if (!medication.name || !medication.dosage || !medication.time) return;
-    if (!userId) {
-      alert("Please sign in to add medications");
-      return;
-    }
 
     const newMed: Medication = {
       id: Date.now().toString(),
@@ -296,39 +335,48 @@ export default function PillReminder() {
 
     if (hasNoConflicts) {
       try {
-        // Save to database
-        const response = await fetch('/api/medications', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            userId,
-            name: newMed.name,
-            dosage: newMed.dosage,
-            frequency: newMed.time // Store time as frequency
-          })
-        });
+        // Try to save to database if a user is logged in
+        if (userId) {
+          const response = await fetch('/api/medications', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              userId,
+              name: newMed.name,
+              dosage: newMed.dosage,
+              frequency: newMed.time // Store time as frequency
+            })
+          });
 
-        const data = await response.json();
-
-        if (response.ok && data.medication) {
-          // Update with database ID
-          newMed.id = data.medication.id;
-          setMedications([...medications, newMed]);
-          setMedication({ name: "", dosage: "", time: "" });
-          
-          // Schedule notification
-          scheduleNotification(newMed);
-          
-          alert(`✅ Medication "${newMed.name}" added successfully!`);
-        } else {
-          const errorMsg = data.error || "Failed to save medication";
-          const details = data.details ? `\n\nDetails: ${data.details}` : '';
-          alert(`❌ ${errorMsg}${details}`);
-          console.error('Medication creation error:', data);
+          if (response.ok) {
+            const data = await response.json();
+            if (data.medication) {
+              // Use database ID if available
+              newMed.id = data.medication.id;
+            }
+          } else {
+            console.warn("Failed to save medication on server, using local only.");
+          }
         }
+
+        const updated = [...medications, newMed];
+        setMedications(updated);
+        saveMedicationsToLocal(updated);
+        setMedication({ name: "", dosage: "", time: "" });
+
+        // Schedule notification
+        scheduleNotification(newMed);
+
+        alert(`✅ Medication "${newMed.name}" added successfully!`);
       } catch (error) {
         console.error('Error saving medication:', error);
-        alert("Failed to save medication. Please try again.");
+        // Still keep it locally so reminders work
+        const updated = [...medications, newMed];
+        setMedications(updated);
+        saveMedicationsToLocal(updated);
+        setMedication({ name: "", dosage: "", time: "" });
+        scheduleNotification(newMed);
+        alert("Medication saved locally. Some online features may not work.");
       }
     } else {
       alert("⚠️ Potential medication conflicts detected. Please review and consult your healthcare provider.");
@@ -336,34 +384,40 @@ export default function PillReminder() {
   };
 
   const removeMedication = async (id: string) => {
-    if (!userId) return;
-
     try {
-      // Delete from database
-      const response = await fetch(`/api/medications?id=${id}&userId=${userId}`, {
-        method: 'DELETE'
-      });
+      // If logged in, try to delete from database (but don't block local removal)
+      if (userId) {
+        const response = await fetch(`/api/medications?id=${id}&userId=${userId}`, {
+          method: 'DELETE'
+        });
 
-      if (response.ok) {
-        // Remove notification
-        const med = medications.find(m => m.id === id);
-        if (med && med.time) {
-          const notificationKey = `${med.id}-${med.time}`;
-          const timeoutId = scheduledNotificationsRef.current.get(notificationKey);
-          if (timeoutId) {
-            clearTimeout(timeoutId);
-            scheduledNotificationsRef.current.delete(notificationKey);
-          }
+        if (!response.ok) {
+          console.warn("Failed to delete medication on server, removing locally only.");
         }
-
-        setMedications(medications.filter(med => med.id !== id));
-        setConflicts([]);
-      } else {
-        alert("Failed to delete medication");
       }
+
+      // Remove notification timeout if any
+      const med = medications.find(m => m.id === id);
+      if (med && med.time) {
+        const notificationKey = `${med.id}-${med.time}`;
+        const timeoutId = scheduledNotificationsRef.current.get(notificationKey);
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          scheduledNotificationsRef.current.delete(notificationKey);
+        }
+      }
+
+      const remaining = medications.filter(med => med.id !== id);
+      setMedications(remaining);
+      saveMedicationsToLocal(remaining);
+      setConflicts([]);
     } catch (error) {
       console.error('Error deleting medication:', error);
-      alert("Failed to delete medication. Please try again.");
+      // Even if server fails, remove locally so UI and reminders stay clean
+      const remaining = medications.filter(med => med.id !== id);
+      setMedications(remaining);
+      saveMedicationsToLocal(remaining);
+      setConflicts([]);
     }
   };
 
