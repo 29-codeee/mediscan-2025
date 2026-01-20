@@ -15,6 +15,7 @@ export default function Dashboard() {
 
   const handleLogout = () => {
     localStorage.removeItem("mediscan_user");
+    localStorage.removeItem("mediscan_user_data");
     router.push("/auth/login");
   };
 
