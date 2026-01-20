@@ -195,12 +195,13 @@ Please provide a helpful, medically-informed response.`;
       // Initialize Gemini AI with API key
       const genAIInstance = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
       
-      // Try models in order - SDK will handle API version automatically
+      // Try models in order - Use actual available models from API
       const modelNames = [
-        'gemini-1.5-flash',      // Most common and stable
-        'gemini-1.5-pro',        // More capable
-        'gemini-pro',            // Legacy but widely supported
-        'gemini-2.0-flash-exp'   // Latest experimental
+        'gemini-3-flash-preview',  // Gemini 3 Flash Preview (user's model!)
+        'gemini-2.5-flash',        // Stable and fast
+        'gemini-2.5-pro',          // More capable
+        'gemini-2.0-flash',         // Alternative option
+        'gemini-flash-latest'       // Latest stable
       ];
       
       let lastError: any = null;
@@ -245,9 +246,9 @@ Please provide a helpful, medically-informed response.`;
         console.log('SDK failed, trying direct REST API...');
         const apiKey = process.env.GOOGLE_AI_API_KEY;
         
-        // Try REST API with gemini-1.5-flash
+        // Try REST API with available models
         try {
-          const restUrl = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+          const restUrl = `https://generativelanguage.googleapis.com/v1/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
           const restResponse = await fetch(restUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
