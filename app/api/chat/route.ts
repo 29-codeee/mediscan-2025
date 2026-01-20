@@ -184,95 +184,109 @@ Current user question: ${message}
 
 Please provide a helpful, medically-informed response.`;
 
-    // Generate AI response using direct REST API call
+    // Generate AI response using Gemini SDK
     let aiResponse;
     try {
       // Check if API key is available
       if (!process.env.GOOGLE_AI_API_KEY) {
-        throw new Error('GOOGLE_AI_API_KEY is not set');
+        throw new Error('GOOGLE_AI_API_KEY is not set in environment variables');
       }
+
+      // Initialize Gemini AI with API key
+      const genAIInstance = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
       
-      // Try models in order - using direct REST API
-      // Start with most common/stable models
+      // Try models in order - SDK will handle API version automatically
       const modelNames = [
-        'gemini-1.5-flash',
-        'gemini-1.5-pro', 
-        'gemini-pro',
-        'models/gemini-1.5-flash',
-        'models/gemini-pro'
+        'gemini-1.5-flash',      // Most common and stable
+        'gemini-1.5-pro',        // More capable
+        'gemini-pro',            // Legacy but widely supported
+        'gemini-2.0-flash-exp'   // Latest experimental
       ];
       
       let lastError: any = null;
       let success = false;
-      const apiKey = process.env.GOOGLE_AI_API_KEY;
       
       for (const modelName of modelNames) {
         try {
-          // Try v1 endpoint first (more stable)
-          const endpoints = [
-            `https://generativelanguage.googleapis.com/v1/models/${modelName}:generateContent?key=${apiKey}`,
-            `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`
-          ];
+          console.log(`Attempting to use model: ${modelName}`);
           
-          let response: Response | null = null;
-          let lastEndpointError: any = null;
-          
-          for (const url of endpoints) {
-            try {
-              response = await fetch(url, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                  contents: [{
-                    parts: [{
-                      text: systemPrompt
-                    }]
-                  }]
-                })
-              });
-              
-              if (response.ok) {
-                break; // Success, exit endpoint loop
-              } else {
-                const errorText = await response.text();
-                lastEndpointError = `HTTP ${response.status}: ${errorText}`;
-                response = null;
-              }
-            } catch (fetchError: any) {
-              lastEndpointError = fetchError.message;
-              response = null;
+          // Get the model
+          const model = genAIInstance.getGenerativeModel({ 
+            model: modelName,
+            generationConfig: {
+              temperature: 0.7,
+              topP: 0.8,
+              topK: 40,
             }
-          }
+          });
           
-          if (!response || !response.ok) {
-            throw new Error(lastEndpointError || 'Failed to fetch');
-          }
-          
-          const data = await response.json();
-          aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
+          // Generate content
+          const result = await model.generateContent(systemPrompt);
+          const response = await result.response;
+          aiResponse = response.text();
           
           if (aiResponse && aiResponse.trim().length > 0) {
-            console.log(`Successfully used model: ${modelName}`);
+            console.log(`✅ Successfully used model: ${modelName}`);
             success = true;
             break;
           } else {
-            throw new Error('Empty response from API');
+            throw new Error('Empty response from model');
           }
         } catch (modelError: any) {
-          console.warn(`Model ${modelName} failed:`, modelError?.message);
+          console.warn(`❌ Model ${modelName} failed:`, modelError?.message || modelError);
           lastError = modelError;
+          // Continue to next model
           continue;
         }
       }
       
       if (!success) {
-        throw lastError || new Error('All model attempts failed');
+        // If SDK fails, try direct REST API as last resort
+        console.log('SDK failed, trying direct REST API...');
+        const apiKey = process.env.GOOGLE_AI_API_KEY;
+        
+        // Try REST API with gemini-1.5-flash
+        try {
+          const restUrl = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+          const restResponse = await fetch(restUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: systemPrompt }] }],
+              generationConfig: {
+                temperature: 0.7,
+                topP: 0.8,
+                topK: 40,
+              }
+            })
+          });
+          
+          if (restResponse.ok) {
+            const restData = await restResponse.json();
+            aiResponse = restData.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (aiResponse && aiResponse.trim().length > 0) {
+              console.log('✅ REST API succeeded');
+              success = true;
+            }
+          }
+        } catch (restError) {
+          console.warn('REST API also failed:', restError);
+        }
+        
+        if (!success) {
+          throw lastError || new Error('All API attempts failed');
+        }
       }
     } catch (aiError: any) {
-      console.error('AI Generation failed:', aiError);
-      // Fallback: Use intelligent mock responses for demo
+      console.error('❌ AI Generation completely failed:', aiError);
+      console.error('Error details:', {
+        message: aiError?.message,
+        stack: aiError?.stack,
+        apiKeySet: !!process.env.GOOGLE_AI_API_KEY,
+        apiKeyLength: process.env.GOOGLE_AI_API_KEY?.length
+      });
+      
+      // Only use fallback if absolutely necessary
       aiResponse = generateMockResponse(message, language, allergies, medicationContext);
     }
 
