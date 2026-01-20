@@ -88,11 +88,12 @@ Please provide a helpful, medically-informed response.`;
     let aiResponse;
     try {
       // Use standard model name
-      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+      const model = genAI.getGenerativeModel({ model: 'gemini-flash-latest' });
       const result = await model.generateContent(systemPrompt);
       const response = await result.response;
       aiResponse = response.text();
     } catch (aiError) {
+      console.error('AI Generation failed detailed error:', aiError);
       console.warn('AI Generation failed, using fallback response:', aiError);
       aiResponse = "I apologize, but I'm currently unable to access my medical knowledge base due to a connection issue. However, generally speaking, for health concerns, it is always best to consult with a healthcare provider. (Note: AI Service is currently in demo mode)";
     }
