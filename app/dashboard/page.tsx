@@ -44,7 +44,7 @@ export default function Dashboard() {
       bgColor: "bg-emerald-50"
     },
     {
-      title: "Secure Auth",
+      title: "SOS",
       desc: "OTP-based authentication via email.",
       icon: "🔐",
       path: "/settings",
@@ -197,6 +197,15 @@ export default function Dashboard() {
           </div>
         </div>
       </footer>
+
+      {/* Floating SOS Button */}
+      <button
+        onClick={() => router.push("/sos-emergency")}
+        className="fixed bottom-6 right-6 bg-red-600 text-white px-6 py-4 rounded-full shadow-2xl hover:bg-red-700 hover:scale-105 transition-all z-50 flex items-center gap-2 group animate-bounce-slow border-4 border-red-200"
+      >
+        <span className="text-2xl">🚨</span>
+        <span className="font-bold text-lg">SOS</span>
+      </button>
     </div>
   );
 }

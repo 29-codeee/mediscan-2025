@@ -38,7 +38,7 @@ export default function SecureLogin() {
 
   return (
     <div className="bg-white p-4 rounded-lg shadow">
-      <h2 className="text-lg font-semibold mb-2">SECURE LOGIN (Nowmail OTP)</h2>
+      <h2 className="text-lg font-semibold mb-2">SOS (Nowmail OTP)</h2>
       <input
         type="email"
         placeholder="Enter your Nowmail email"

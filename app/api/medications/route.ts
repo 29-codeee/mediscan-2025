@@ -37,7 +37,19 @@ export async function GET(request: NextRequest) {
 // POST - Add new medication
 export async function POST(request: NextRequest) {
   try {
-    const { userId, name, dosage, frequency, instructions, startDate, endDate } = await request.json();
+    const { 
+      userId, 
+      name, 
+      dosage, 
+      frequency, 
+      instructions, 
+      startDate, 
+      endDate,
+      pills_remaining,
+      pills_per_dose,
+      refill_threshold,
+      refill_by
+    } = await request.json();
 
     if (!userId || !name) {
       return NextResponse.json({ error: 'User ID and medication name are required' }, { status: 400 });
@@ -53,6 +65,10 @@ export async function POST(request: NextRequest) {
         instructions,
         start_date: startDate,
         end_date: endDate,
+        pills_remaining,
+        pills_per_dose,
+        refill_threshold,
+        refill_by,
         is_active: true
       })
       .select()

@@ -60,9 +60,11 @@ export default function PillReminder() {
   const ALLERGY_STORAGE_KEY = "mediscan_allergies";
   const DOSE_EVENTS_KEY = "mediscan_dose_events";
 
-  const loadMedicationsFromLocal = () => {
+  const storageKey = (base: string, uid: string | null) => (uid ? `${base}:${uid}` : `${base}:guest`);
+
+  const loadMedicationsFromLocal = (uid: string | null) => {
     try {
-      const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
+      const stored = localStorage.getItem(storageKey(LOCAL_STORAGE_KEY, uid));
       if (!stored) return [];
       const parsed = JSON.parse(stored);
       if (!Array.isArray(parsed)) return [];
@@ -73,9 +75,9 @@ export default function PillReminder() {
     }
   };
 
-  const saveMedicationsToLocal = (list: Medication[]) => {
+  const saveMedicationsToLocal = (list: Medication[], uid: string | null) => {
     try {
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(list));
+      localStorage.setItem(storageKey(LOCAL_STORAGE_KEY, uid), JSON.stringify(list));
     } catch (error) {
       console.error("Error saving medications to local storage:", error);
     }
@@ -143,18 +145,22 @@ export default function PillReminder() {
   const getAllergyList = (): string[] => {
     try {
       // Prefer structured settings if present
-      const userStr = localStorage.getItem("mediscan_user");
-      let userId = "";
-      if (userStr) {
-        try {
-          const user = JSON.parse(userStr);
-          userId = user.id || user.userId || "";
-        } catch {
-          userId = userStr;
+      let currentUserId = userId;
+      
+      if (!currentUserId) {
+        const userStr = localStorage.getItem("mediscan_user") || localStorage.getItem("mediscan_user_data");
+        if (userStr) {
+          try {
+            const user = JSON.parse(userStr);
+            currentUserId = user.id || user.userId || "";
+          } catch {
+            currentUserId = userStr;
+          }
         }
       }
-      if (userId) {
-        const settingsStr = localStorage.getItem(`settings_${userId}`);
+
+      if (currentUserId) {
+        const settingsStr = localStorage.getItem(`settings_${currentUserId}`);
         if (settingsStr) {
           const settings = JSON.parse(settingsStr);
           if (settings?.allergies) {
@@ -195,17 +201,27 @@ export default function PillReminder() {
             const data = await response.json();
 
             if (data.success && data.medications) {
+              // Load local data to preserve client-only fields (like pill counts) that might not be on server
+              const localMeds = loadMedicationsFromLocal(userId);
+
               // Convert database format to component format
-              const formattedMeds = data.medications.map((med: any) => ({
-                id: med.id,
-                name: med.name,
-                dosage: med.dosage || '',
-                time: med.frequency || '', // Using frequency as time for now
-                rxcui: undefined
-              }));
+              const formattedMeds = data.medications.map((med: any) => {
+                const localMatch = localMeds.find(lm => lm.id === med.id);
+                return {
+                  id: med.id,
+                  name: med.name,
+                  dosage: med.dosage || '',
+                  time: med.frequency || '', // Using frequency as time for now
+                  rxcui: localMatch?.rxcui, // Preserve rxcui from local if available
+                  pillsRemaining: med.pills_remaining !== undefined ? med.pills_remaining : localMatch?.pillsRemaining,
+                  pillsPerDose: med.pills_per_dose !== undefined ? med.pills_per_dose : (localMatch?.pillsPerDose ?? 1),
+                  refillThreshold: med.refill_threshold !== undefined ? med.refill_threshold : (localMatch?.refillThreshold ?? 5),
+                  refillBy: med.refill_by || localMatch?.refillBy
+                };
+              });
 
               setMedications(formattedMeds);
-              saveMedicationsToLocal(formattedMeds);
+              saveMedicationsToLocal(formattedMeds, userId);
 
               // Schedule notifications for all medications
               formattedMeds.forEach((med: Medication) => {
@@ -219,7 +235,7 @@ export default function PillReminder() {
         }
 
         // If API not available or no user, fall back to local storage
-        const localMeds = loadMedicationsFromLocal();
+        const localMeds = loadMedicationsFromLocal(userId);
         setMedications(localMeds);
         localMeds.forEach((med) => {
           if (med.time) scheduleNotification(med);
@@ -227,7 +243,7 @@ export default function PillReminder() {
       } catch (error) {
         console.error('Error loading medications:', error);
         // On error, still use local so reminders work offline
-        const localMeds = loadMedicationsFromLocal();
+        const localMeds = loadMedicationsFromLocal(userId);
         setMedications(localMeds);
         localMeds.forEach((med) => {
           if (med.time) scheduleNotification(med);
@@ -518,7 +534,11 @@ export default function PillReminder() {
               userId,
               name: newMed.name,
               dosage: newMed.dosage,
-              frequency: newMed.time // Store time as frequency
+              frequency: newMed.time, // Store time as frequency
+              pills_remaining: newMed.pillsRemaining,
+              pills_per_dose: newMed.pillsPerDose,
+              refill_threshold: newMed.refillThreshold,
+              refill_by: newMed.refillBy
             })
           });
 
@@ -535,7 +555,7 @@ export default function PillReminder() {
 
         const updated = [...medications, newMed];
         setMedications(updated);
-        saveMedicationsToLocal(updated);
+        saveMedicationsToLocal(updated, userId);
         setMedication({ name: "", dosage: "", time: "", pillsRemaining: "", refillBy: "", pillsPerDose: "1", refillThreshold: "5" });
 
         // Schedule notification
@@ -547,7 +567,7 @@ export default function PillReminder() {
         // Still keep it locally so reminders work
         const updated = [...medications, newMed];
         setMedications(updated);
-        saveMedicationsToLocal(updated);
+        saveMedicationsToLocal(updated, userId);
         setMedication({ name: "", dosage: "", time: "", pillsRemaining: "", refillBy: "", pillsPerDose: "1", refillThreshold: "5" });
         scheduleNotification(newMed);
         alert("Medication saved locally. Some online features may not work.");
@@ -612,14 +632,14 @@ export default function PillReminder() {
 
       const remaining = medications.filter(med => med.id !== id);
       setMedications(remaining);
-      saveMedicationsToLocal(remaining);
+      saveMedicationsToLocal(remaining, userId);
       setConflicts([]);
     } catch (error) {
       console.error('Error deleting medication:', error);
       // Even if server fails, remove locally so UI and reminders stay clean
       const remaining = medications.filter(med => med.id !== id);
       setMedications(remaining);
-      saveMedicationsToLocal(remaining);
+      saveMedicationsToLocal(remaining, userId);
       setConflicts([]);
     }
   };
@@ -948,12 +968,28 @@ export default function PillReminder() {
                   const perDose = activeAlarm.pillsPerDose ?? 1;
                   if (typeof activeAlarm.pillsRemaining === "number") {
                     const updated = medications.map((m) =>
-                      m.id === activeAlarm.id
-                        ? { ...m, pillsRemaining: Math.max(0, (m.pillsRemaining ?? 0) - perDose) }
-                        : m
-                    );
-                    setMedications(updated);
-                    saveMedicationsToLocal(updated);
+            m.id === activeAlarm.id
+              ? { ...m, pillsRemaining: Math.max(0, (m.pillsRemaining ?? 0) - perDose) }
+              : m
+          );
+          setMedications(updated);
+          saveMedicationsToLocal(updated, userId);
+          
+          // Sync with database if user is logged in
+          if (userId) {
+            const updatedMed = updated.find(m => m.id === activeAlarm.id);
+            if (updatedMed) {
+              fetch('/api/medications', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  id: activeAlarm.id,
+                  userId: userId,
+                  pills_remaining: updatedMed.pillsRemaining
+                })
+              }).catch(err => console.error("Failed to sync pill count:", err));
+            }
+          }
                   }
                   setActiveAlarm(null);
                 }}
