@@ -2,19 +2,19 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabase";
 
 export default function Home() {
   const router = useRouter();
 
   useEffect(() => {
-    const checkUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) router.push("/dashboard");
-      else router.push("/auth/login");
-    };
-    checkUser();
-  }, []);
+    // Fast path: avoid network/auth calls on first load (makes the site feel much snappier).
+    // We use the same localStorage keys the rest of the app uses.
+    const hasSession =
+      !!localStorage.getItem("mediscan_user") ||
+      !!localStorage.getItem("mediscan_user_data");
+
+    router.replace(hasSession ? "/dashboard" : "/auth/login");
+  }, [router]);
 
   return <div>Loading...</div>;
 }
