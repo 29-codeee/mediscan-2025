@@ -13,6 +13,7 @@ export default function HealixChatbot() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputMessage, setInputMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState("mock-user-id");
 
   const getHistoryKey = (userId: string) => `mediscan_chat_history_${userId}`;
 
@@ -22,6 +23,7 @@ export default function HealixChatbot() {
   const language = "en-IN";
   const [voiceEnabled, setVoiceEnabled] = useState<boolean>(true);
   const voiceEnabledRef = useRef(voiceEnabled);
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const speechRate = 1;
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = (useRef<any>(null) as any);
@@ -29,6 +31,16 @@ export default function HealixChatbot() {
   const isSpeechRecognitionSupported =
     typeof window !== "undefined" && ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
   const isSpeechSynthesisSupported = typeof window !== "undefined" && "speechSynthesis" in window;
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      const updateVoices = () => {
+        setVoices(window.speechSynthesis.getVoices());
+      };
+      updateVoices();
+      window.speechSynthesis.onvoiceschanged = updateVoices;
+    }
+  }, []);
 
   const speakText = (text: string) => {
     if (!voiceEnabledRef.current) return;
@@ -40,6 +52,11 @@ export default function HealixChatbot() {
       window.speechSynthesis.cancel();
 
       const utterance = new SpeechSynthesisUtterance(text);
+      // Find a voice that matches the language, or fallback to any English voice
+      const voice = voices.find((v) => v.lang === language) || voices.find((v) => v.lang.startsWith("en"));
+      if (voice) {
+        utterance.voice = voice;
+      }
       utterance.lang = language;
       utterance.rate = speechRate;
       utterance.pitch = 1;
@@ -146,6 +163,7 @@ export default function HealixChatbot() {
       } catch (e) {
         console.warn("Could not parse user data for chat history", e);
       }
+      setCurrentUserId(userId);
 
       // Try server-side history first for real users
       if (!userId.startsWith("mock-")) {
@@ -452,6 +470,13 @@ export default function HealixChatbot() {
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              onClick={clearHistory}
+              className="text-sm px-3 py-2 rounded-lg bg-white bg-opacity-20 hover:bg-opacity-30"
+              title="Clear chat history"
+            >
+              🗑️ Clear
+            </button>
             <button
               onClick={() => setVoiceEnabled((v) => !v)}
               className="text-sm px-3 py-2 rounded-lg bg-white bg-opacity-20 hover:bg-opacity-30"

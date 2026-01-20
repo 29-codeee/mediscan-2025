@@ -651,6 +651,40 @@ export default function PillReminder() {
     else return "A soothing evening lullaby for relaxation.";
   };
 
+  const clearAllData = async () => {
+    if (confirm("Are you sure you want to clear all pill reminder data?")) {
+      // 1. Delete from server if logged in
+      if (userId) {
+        await Promise.all(medications.map(med =>
+          fetch(`/api/medications?id=${med.id}&userId=${userId}`, { method: 'DELETE' }).catch(e => console.warn(e))
+        ));
+      }
+
+      // 2. Clear timeouts
+      scheduledNotificationsRef.current.forEach((timeoutId) => clearTimeout(timeoutId));
+      scheduledNotificationsRef.current.clear();
+
+      // 3. Clear local storage
+      localStorage.removeItem(LOCAL_STORAGE_KEY);
+      localStorage.removeItem(storageKey(LOCAL_STORAGE_KEY, userId));
+      localStorage.removeItem(STATS_STORAGE_KEY);
+      localStorage.removeItem(DOSE_EVENTS_KEY);
+
+      // 4. Reset State
+      setMedications([]);
+      setConflicts([]);
+      setAllergyWarnings([]);
+
+      const zeroStats = { taken: 0, missed: 0, streak: 0 };
+      setStats(zeroStats);
+      saveStatsToLocal(zeroStats);
+
+      computeWeekly([]);
+
+      alert("All data cleared.");
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="max-w-4xl mx-auto bg-white rounded-2xl shadow-xl p-8 text-center">
@@ -701,6 +735,13 @@ export default function PillReminder() {
               title="Test if notifications are working"
             >
               🔔 Test
+            </button>
+            <button
+              onClick={clearAllData}
+              className="bg-white bg-opacity-20 hover:bg-opacity-30 px-3 py-2 rounded-lg text-sm transition"
+              title="Clear all medication data"
+            >
+              🗑️ Reset
             </button>
           </div>
         </div>
