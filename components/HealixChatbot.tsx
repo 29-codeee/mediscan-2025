@@ -31,7 +31,13 @@ export default function HealixChatbot() {
   const isSpeechSynthesisSupported = typeof window !== "undefined" && "speechSynthesis" in window;
 
   const speakText = (text: string) => {
-    if (!voiceEnabled) return;
+    if (!voiceEnabled) {
+      // Stop any ongoing speech if voice is disabled
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+      return;
+    }
     if (!isSpeechSynthesisSupported) return;
     if (!text) return;
 
@@ -513,7 +519,14 @@ export default function HealixChatbot() {
               🗑️ Clear
             </button>
             <button
-              onClick={() => setVoiceEnabled((v) => !v)}
+              onClick={() => {
+                const newValue = !voiceEnabled;
+                setVoiceEnabled(newValue);
+                // Immediately stop any ongoing speech if disabling
+                if (!newValue && typeof window !== "undefined" && "speechSynthesis" in window) {
+                  window.speechSynthesis.cancel();
+                }
+              }}
               className="text-sm px-3 py-2 rounded-lg bg-white bg-opacity-20 hover:bg-opacity-30"
               title="Toggle voice output"
             >
