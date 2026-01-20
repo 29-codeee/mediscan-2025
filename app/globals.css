@@ -4,6 +4,24 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Accessibility helpers (toggled via localStorage and applied on <html>) */
+.mediscan-large-text {
+  font-size: 110%;
+}
+
+.mediscan-high-contrast body {
+  background: #000 !important;
+  color: #fff !important;
+}
+
+.mediscan-high-contrast a,
+.mediscan-high-contrast button,
+.mediscan-high-contrast input,
+.mediscan-high-contrast select,
+.mediscan-high-contrast textarea {
+  outline-color: #fff !important;
+}
+
 /* Custom CSS Variables for consistent theming */
 :root {
   --primary-gradient: linear-gradient(135deg, #0EA5E9 0%, #06B6D4 50%, #0891B2 100%);

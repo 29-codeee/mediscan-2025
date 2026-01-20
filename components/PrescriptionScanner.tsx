@@ -17,6 +17,8 @@ export default function PrescriptionScanner() {
   const [captureMode, setCaptureMode] = useState<'upload' | 'camera'>('upload');
   const [cameraActive, setCameraActive] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [allergyWarnings, setAllergyWarnings] = useState<string[]>([]);
+  const [addStatus, setAddStatus] = useState<string | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -64,6 +66,36 @@ export default function PrescriptionScanner() {
       };
     }
     return null;
+  };
+
+  const getAllergyList = (): string[] => {
+    try {
+      const userStr = localStorage.getItem("mediscan_user");
+      let userId = "";
+      if (userStr) {
+        try {
+          const user = JSON.parse(userStr);
+          userId = user.id || user.userId || "";
+        } catch {
+          userId = userStr;
+        }
+      }
+      if (userId) {
+        const settingsStr = localStorage.getItem(`settings_${userId}`);
+        if (settingsStr) {
+          const settings = JSON.parse(settingsStr);
+          if (settings?.allergies) {
+            return String(settings.allergies)
+              .split(",")
+              .map((s: string) => s.trim().toLowerCase())
+              .filter(Boolean);
+          }
+        }
+      }
+      return [];
+    } catch {
+      return [];
+    }
   };
 
   // Camera functions
@@ -249,6 +281,25 @@ export default function PrescriptionScanner() {
 
       setScannedData(uiData);
 
+      // Allergy warnings based on extracted medication
+      try {
+        const allergies = getAllergyList();
+        const warnings: string[] = [];
+        if (allergies.length > 0 && uiData.medication && uiData.medication !== "Not found") {
+          const medLower = String(uiData.medication).toLowerCase();
+          allergies.forEach((a) => {
+            if (medLower.includes(a)) {
+              warnings.push(
+                `🚫 Allergy alert: You have marked an allergy to **${a}**, which may relate to **${uiData.medication}**.`
+              );
+            }
+          });
+        }
+        setAllergyWarnings(warnings);
+      } catch (err) {
+        console.warn("Could not compute allergy warnings for scanned prescription", err);
+      }
+
       // Get real drug information from RxNav for the first medication
       if (uiData.medication && uiData.medication !== "Not found") {
         try {
@@ -274,6 +325,32 @@ export default function PrescriptionScanner() {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const addScannedToPillReminder = () => {
+    try {
+      if (!scannedData?.medication || scannedData.medication === "Not found" || scannedData.medication === "Error") {
+        setAddStatus("No valid medication to add.");
+        return;
+      }
+      const raw = localStorage.getItem("mediscan_pill_medications");
+      const list = raw ? JSON.parse(raw) : [];
+      const meds = Array.isArray(list) ? list : [];
+
+      const newMed = {
+        id: String(Date.now()),
+        name: String(scannedData.medication),
+        dosage: String(scannedData.strength || ""),
+        time: "09:00", // default time; user can edit later
+      };
+
+      meds.unshift(newMed);
+      localStorage.setItem("mediscan_pill_medications", JSON.stringify(meds));
+      setAddStatus(`Added "${newMed.name}" to Pill Reminder. Set the correct time there.`);
+    } catch (e) {
+      console.error("Failed to add scanned medication to pill reminders", e);
+      setAddStatus("Failed to add medication. Please try again.");
     }
   };
 
@@ -527,6 +604,31 @@ export default function PrescriptionScanner() {
                 Take <strong>{scannedData.medication} {scannedData.strength}</strong> {scannedData.frequency.toLowerCase()} {scannedData.timing.toLowerCase()}.
                 {drugInfo ? ' Drug information retrieved from NIH RxNav database.' : ' Please consult your healthcare provider for complete drug information.'}
               </p>
+
+              {allergyWarnings.length > 0 && (
+                <div className="mt-3 bg-red-50 border border-red-200 rounded-lg p-3">
+                  <h4 className="text-sm font-semibold text-red-800 mb-1">🚫 Allergy Warnings</h4>
+                  <ul className="text-xs text-red-700 list-disc list-inside space-y-1">
+                    {allergyWarnings.map((w, idx) => (
+                      <li key={idx}>{w}</li>
+                    ))}
+                  </ul>
+                  <p className="text-[11px] text-red-600 mt-1">
+                    If this prescription conflicts with your allergies, contact your doctor or pharmacist immediately.
+                  </p>
+                </div>
+              )}
+
+              <div className="mt-4 flex flex-col sm:flex-row gap-2">
+                <button
+                  type="button"
+                  onClick={addScannedToPillReminder}
+                  className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg"
+                >
+                  ➕ Add to Pill Reminder
+                </button>
+                <p className="text-xs text-gray-600 self-center">{addStatus || ""}</p>
+              </div>
             </div>
           </div>
         )}

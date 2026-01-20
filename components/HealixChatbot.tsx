@@ -1,9 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { GoogleGenerativeAI } from "@google/generative-ai";
-
-const genAI = new GoogleGenerativeAI(process.env.NEXT_PUBLIC_GOOGLE_AI_API_KEY!);
+import { useState, useEffect, useRef } from "react";
 
 interface Message {
   id: number;
@@ -16,6 +13,110 @@ export default function HealixChatbot() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputMessage, setInputMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+
+  const getHistoryKey = (userId: string) => `mediscan_chat_history_${userId}`;
+
+  // Voice + language (Web Speech API)
+  const LANG_STORAGE_KEY = "mediscan_chat_language";
+  const VOICE_STORAGE_KEY = "mediscan_chat_voice_enabled";
+  const VOICE_RATE_STORAGE_KEY = "mediscan_chat_voice_rate";
+
+  const SUPPORTED_LANGUAGES: { code: string; label: string }[] = [
+    { code: "en-IN", label: "English (India)" },
+    { code: "hi-IN", label: "Hindi (हिन्दी)" },
+    { code: "kn-IN", label: "Kannada (ಕನ್ನಡ)" },
+    { code: "ta-IN", label: "Tamil (தமிழ்)" },
+    { code: "te-IN", label: "Telugu (తెలుగు)" },
+    { code: "ml-IN", label: "Malayalam (മലയാളം)" },
+    { code: "mr-IN", label: "Marathi (मराठी)" },
+    { code: "bn-IN", label: "Bengali (বাংলা)" },
+    { code: "gu-IN", label: "Gujarati (ગુજરાતી)" },
+    { code: "pa-IN", label: "Punjabi (ਪੰਜਾਬੀ)" },
+    { code: "ur-IN", label: "Urdu (اردو)" },
+  ];
+
+  const [language, setLanguage] = useState<string>("en-IN");
+  const [voiceEnabled, setVoiceEnabled] = useState<boolean>(true);
+  const [speechRate, setSpeechRate] = useState<number>(1);
+  const [isListening, setIsListening] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const recognitionRef = (useRef<any>(null) as any);
+
+  const isSpeechRecognitionSupported =
+    typeof window !== "undefined" && ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
+  const isSpeechSynthesisSupported = typeof window !== "undefined" && "speechSynthesis" in window;
+
+  const speakText = (text: string) => {
+    if (!voiceEnabled) return;
+    if (!isSpeechSynthesisSupported) return;
+    if (!text) return;
+
+    try {
+      // Stop any ongoing speech first
+      window.speechSynthesis.cancel();
+
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = language;
+      utterance.rate = speechRate;
+      utterance.pitch = 1;
+      utterance.onstart = () => setIsSpeaking(true);
+      utterance.onend = () => setIsSpeaking(false);
+      utterance.onerror = () => setIsSpeaking(false);
+      window.speechSynthesis.speak(utterance);
+    } catch (e) {
+      console.warn("Speech synthesis failed", e);
+    }
+  };
+
+  const stopSpeaking = () => {
+    if (!isSpeechSynthesisSupported) return;
+    try {
+      window.speechSynthesis.cancel();
+    } catch {
+      // ignore
+    }
+    setIsSpeaking(false);
+  };
+
+  useEffect(() => {
+    try {
+      const savedLang = localStorage.getItem(LANG_STORAGE_KEY);
+      if (savedLang) setLanguage(savedLang);
+      const savedVoice = localStorage.getItem(VOICE_STORAGE_KEY);
+      if (savedVoice) setVoiceEnabled(savedVoice === "true");
+      const savedRate = localStorage.getItem(VOICE_RATE_STORAGE_KEY);
+      if (savedRate) {
+        const parsed = Number(savedRate);
+        if (!Number.isNaN(parsed)) setSpeechRate(parsed);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(LANG_STORAGE_KEY, language);
+    } catch {
+      // ignore
+    }
+  }, [language]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(VOICE_STORAGE_KEY, String(voiceEnabled));
+    } catch {
+      // ignore
+    }
+  }, [voiceEnabled]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(VOICE_RATE_STORAGE_KEY, String(speechRate));
+    } catch {
+      // ignore
+    }
+  }, [speechRate]);
 
   // RxNav API functions
   const searchDrugByName = async (drugName: string) => {
@@ -45,15 +146,107 @@ export default function HealixChatbot() {
     return drugKeywords.some(keyword => message.toLowerCase().includes(keyword));
   };
 
-  // Initialize with greeting message
+  // Initialize with greeting + history
   useEffect(() => {
     const greetingMessage: Message = {
       id: 1,
       text: "Hi! I am Healix, your medical intelligence assistant. How can I help you today?",
-      sender: 'healix',
-      timestamp: new Date()
+      sender: "healix",
+      timestamp: new Date(),
     };
-    setMessages([greetingMessage]);
+
+    const loadHistory = async () => {
+      // Default to mock user if not logged in
+      let userId = "mock-user-id";
+      try {
+        const userData = localStorage.getItem("mediscan_user_data");
+        if (userData) {
+          const user = JSON.parse(userData);
+          if (user?.id) userId = user.id;
+        }
+      } catch (e) {
+        console.warn("Could not parse user data for chat history", e);
+      }
+
+      // Try server-side history first for real users
+      if (!userId.startsWith("mock-")) {
+        try {
+          const res = await fetch(`/api/chat?userId=${encodeURIComponent(userId)}&limit=50`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.success && Array.isArray(data.chatHistory) && data.chatHistory.length > 0) {
+              let idCounter = 2;
+              const historyMessages: Message[] = [];
+
+              data.chatHistory.forEach((entry: any) => {
+                const createdAt = entry.created_at ? new Date(entry.created_at) : new Date();
+
+                if (entry.message) {
+                  historyMessages.push({
+                    id: idCounter++,
+                    text: entry.message,
+                    sender: "user",
+                    timestamp: createdAt,
+                  });
+                }
+
+                if (entry.response) {
+                  historyMessages.push({
+                    id: idCounter++,
+                    text: entry.response,
+                    sender: "healix",
+                    timestamp: createdAt,
+                  });
+                }
+              });
+
+              setMessages([greetingMessage, ...historyMessages]);
+
+              // Cache locally
+              try {
+                const simple = historyMessages.map((m) => ({
+                  text: m.text,
+                  sender: m.sender,
+                  timestamp: m.timestamp.getTime(),
+                }));
+                localStorage.setItem(getHistoryKey(userId), JSON.stringify(simple));
+              } catch (err) {
+                console.warn("Failed to cache chat history locally", err);
+              }
+              return;
+            }
+          }
+        } catch (err) {
+          console.warn("Failed to load chat history from server", err);
+        }
+      }
+
+      // Fallback to local storage (also used for mock users)
+      try {
+        const stored = localStorage.getItem(getHistoryKey(userId));
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed)) {
+            let idCounter = 2;
+            const historyMessages: Message[] = parsed.map((item: any) => ({
+              id: idCounter++,
+              text: item.text,
+              sender: item.sender === "user" ? "user" : "healix",
+              timestamp: new Date(item.timestamp || Date.now()),
+            }));
+            setMessages([greetingMessage, ...historyMessages]);
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn("Failed to load chat history from local storage", err);
+      }
+
+      // Default: only greeting
+      setMessages([greetingMessage]);
+    };
+
+    loadHistory();
   }, []);
 
   const handleSendMessage = async () => {
@@ -62,7 +255,7 @@ export default function HealixChatbot() {
     const userMessage: Message = {
       id: messages.length + 1,
       text: inputMessage,
-      sender: 'user',
+      sender: "user",
       timestamp: new Date()
     };
 
@@ -74,6 +267,18 @@ export default function HealixChatbot() {
     try {
       let responseText = "";
 
+      // Determine user id for history and backend
+      let userId = "mock-user-id";
+      try {
+        const userData = localStorage.getItem("mediscan_user_data");
+        if (userData) {
+          const user = JSON.parse(userData);
+          if (user?.id) userId = user.id;
+        }
+      } catch (e) {
+        console.warn("Could not parse user data", e);
+      }
+
       // Check if this is a drug-related query
       if (checkForDrugQuery(currentMessage)) {
         // Extract potential drug names from the message
@@ -81,6 +286,37 @@ export default function HealixChatbot() {
 
         if (drugMatches) {
           const drugName = drugMatches[0];
+
+          // Allergy warning based on user settings
+          try {
+            const userStr = localStorage.getItem("mediscan_user");
+            let settingsAllergies: string[] = [];
+            if (userStr) {
+              try {
+                const user = JSON.parse(userStr);
+                const uid = user.id || user.userId || userStr;
+                const settingsStr = localStorage.getItem(`settings_${uid}`);
+                if (settingsStr) {
+                  const settings = JSON.parse(settingsStr);
+                  if (settings?.allergies) {
+                    settingsAllergies = String(settings.allergies)
+                      .split(",")
+                      .map((s: string) => s.trim().toLowerCase())
+                      .filter(Boolean);
+                  }
+                }
+              } catch {
+                // ignore
+              }
+            }
+            const lowerDrug = drugName.toLowerCase();
+            const allergyHit = settingsAllergies.find((a) => lowerDrug.includes(a));
+            if (allergyHit) {
+              responseText += `\n\n🚫 **Allergy Alert:** You have marked an allergy related to **${allergyHit}**. Please avoid using **${drugName}** and contact your doctor immediately.\n`;
+            }
+          } catch (e) {
+            console.warn("Could not evaluate allergy warnings for chatbot", e);
+          }
           const drugGroups = await searchDrugByName(drugName);
 
           if (drugGroups.length > 0) {
@@ -110,18 +346,6 @@ export default function HealixChatbot() {
 
       // If no drug-specific info found, use Healix API for general response
       if (!responseText) {
-        // Get user ID from local storage
-        let userId = 'mock-user-id';
-        try {
-          const userData = localStorage.getItem('mediscan_user_data');
-          if (userData) {
-            const user = JSON.parse(userData);
-            userId = user.id;
-          }
-        } catch (e) {
-          console.warn('Could not parse user data', e);
-        }
-
         const response = await fetch('/api/chat', {
           method: 'POST',
           headers: {
@@ -145,11 +369,29 @@ export default function HealixChatbot() {
       const healixMessage: Message = {
         id: messages.length + 2,
         text: responseText,
-        sender: 'healix',
+        sender: "healix",
         timestamp: new Date()
       };
 
-      setMessages(prev => [...prev, healixMessage]);
+      setMessages(prev => {
+        const updated = [...prev, healixMessage];
+        try {
+          const simple = updated
+            .filter(m => m.id !== 1) // don't persist greeting
+            .map(m => ({
+              text: m.text,
+              sender: m.sender,
+              timestamp: m.timestamp.getTime(),
+            }));
+          localStorage.setItem(getHistoryKey(userId), JSON.stringify(simple));
+        } catch (err) {
+          console.warn("Failed to store chat history locally", err);
+        }
+        return updated;
+      });
+
+      // Speak Healix response if enabled
+      speakText(responseText);
     } catch (error) {
       const errorMessage: Message = {
         id: messages.length + 2,
@@ -163,6 +405,54 @@ export default function HealixChatbot() {
     setIsLoading(false);
   };
 
+  const startListening = () => {
+    if (isLoading) return;
+    if (!isSpeechRecognitionSupported) {
+      alert("Voice input is not supported in this browser. Try Microsoft Edge or Google Chrome.");
+      return;
+    }
+
+    try {
+      const SpeechRecognitionCtor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      const recognition = new SpeechRecognitionCtor();
+      recognition.lang = language;
+      recognition.interimResults = true;
+      recognition.continuous = false;
+
+      recognition.onstart = () => setIsListening(true);
+      recognition.onerror = () => setIsListening(false);
+      recognition.onend = () => setIsListening(false);
+      recognition.onresult = (event: any) => {
+        let transcript = "";
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          transcript += event.results[i][0].transcript;
+        }
+        setInputMessage(transcript.trim());
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    } catch (e) {
+      console.warn("Speech recognition failed to start", e);
+      alert("Could not start voice input. Please try again.");
+    }
+  };
+
+  const stopListening = () => {
+    try {
+      recognitionRef.current?.stop?.();
+    } catch {
+      // ignore
+    }
+    setIsListening(false);
+  };
+
+  const replayLastHealix = () => {
+    const last = [...messages].reverse().find((m) => m.sender === "healix" && m.text);
+    if (!last) return;
+    speakText(last.text);
+  };
+
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -174,13 +464,50 @@ export default function HealixChatbot() {
     <div className="max-w-4xl mx-auto bg-white rounded-2xl shadow-xl overflow-hidden">
       {/* Header */}
       <div className="bg-gradient-to-r from-blue-500 to-cyan-500 text-white p-6">
-        <div className="flex items-center space-x-3">
-          <div className="w-12 h-12 bg-white bg-opacity-20 rounded-full flex items-center justify-center">
-            <span className="text-2xl">🤖</span>
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center space-x-3">
+            <div className="w-12 h-12 bg-white bg-opacity-20 rounded-full flex items-center justify-center">
+              <span className="text-2xl">🤖</span>
+            </div>
+            <div>
+              <h2 className="text-2xl font-bold">Healix AI Assistant</h2>
+              <p className="text-blue-100">Your intelligent medical companion</p>
+            </div>
           </div>
-          <div>
-            <h2 className="text-2xl font-bold">Healix AI Assistant</h2>
-            <p className="text-blue-100">Your intelligent medical companion</p>
+
+          <div className="flex items-center gap-2">
+            <select
+              value={language}
+              onChange={(e) => setLanguage(e.target.value)}
+              className="text-sm text-gray-800 px-3 py-2 rounded-lg bg-white bg-opacity-90 focus:outline-none"
+              title="Language"
+            >
+              {SUPPORTED_LANGUAGES.map((l) => (
+                <option key={l.code} value={l.code}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
+
+            <button
+              onClick={() => setVoiceEnabled((v) => !v)}
+              className="text-sm px-3 py-2 rounded-lg bg-white bg-opacity-20 hover:bg-opacity-30"
+              title="Toggle voice output"
+            >
+              {voiceEnabled ? "🔊 Voice" : "🔇 Voice"}
+            </button>
+
+            <select
+              value={speechRate}
+              onChange={(e) => setSpeechRate(Number(e.target.value))}
+              className="text-sm text-gray-800 px-3 py-2 rounded-lg bg-white bg-opacity-90 focus:outline-none"
+              title="Speech speed"
+              disabled={!isSpeechSynthesisSupported}
+            >
+              <option value={0.8}>0.8×</option>
+              <option value={1}>1.0×</option>
+              <option value={1.2}>1.2×</option>
+            </select>
           </div>
         </div>
       </div>
@@ -224,7 +551,49 @@ export default function HealixChatbot() {
 
       {/* Input Area */}
       <div className="p-6 bg-white border-t">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={replayLastHealix}
+              disabled={!isSpeechSynthesisSupported || !voiceEnabled || messages.length < 2}
+              className="text-xs px-3 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 disabled:bg-gray-100 disabled:text-gray-400"
+              title="Replay last Healix reply"
+            >
+              🔁 Replay last reply
+            </button>
+
+            <button
+              type="button"
+              onClick={stopSpeaking}
+              disabled={!isSpeechSynthesisSupported || !isSpeaking}
+              className="text-xs px-3 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 disabled:bg-gray-100 disabled:text-gray-400"
+              title="Stop speaking"
+            >
+              ⏹ Stop speaking
+            </button>
+          </div>
+
+          {!isSpeechSynthesisSupported && (
+            <span className="text-xs text-amber-600">
+              Voice output isn’t supported in this browser.
+            </span>
+          )}
+        </div>
+
         <div className="flex space-x-3">
+          <button
+            type="button"
+            onClick={isListening ? stopListening : startListening}
+            disabled={isLoading}
+            className={`px-4 py-3 rounded-full transition-colors duration-200 ${
+              isListening ? "bg-red-500 hover:bg-red-600 text-white" : "bg-gray-100 hover:bg-gray-200 text-gray-700"
+            }`}
+            title={isListening ? "Stop listening" : "Start voice input"}
+          >
+            {isListening ? "⏹" : "🎤"}
+          </button>
+
           <input
             type="text"
             value={inputMessage}
@@ -248,6 +617,11 @@ export default function HealixChatbot() {
         <p className="text-xs text-gray-500 mt-2 text-center">
           ⚠️ This is not medical advice. Always consult healthcare professionals for serious concerns.
         </p>
+        {!isSpeechRecognitionSupported && (
+          <p className="text-xs text-amber-600 mt-2 text-center">
+            Voice input isn’t supported in this browser. Try Microsoft Edge or Google Chrome.
+          </p>
+        )}
       </div>
     </div>
   );

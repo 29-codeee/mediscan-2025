@@ -7,16 +7,32 @@ interface Medication {
   dosage: string;
   time: string;
   rxcui?: string;
+  pillsRemaining?: number;
+  refillBy?: string; // YYYY-MM-DD
+  pillsPerDose?: number;
+  refillThreshold?: number;
 }
 
 export default function PillReminder() {
   const [medication, setMedication] = useState({
     name: "",
     dosage: "",
-    time: ""
+    time: "",
+    pillsRemaining: "",
+    refillBy: "",
+    pillsPerDose: "1",
+    refillThreshold: "5",
   });
   const [medications, setMedications] = useState<Medication[]>([]);
   const [conflicts, setConflicts] = useState<string[]>([]);
+  const [allergyWarnings, setAllergyWarnings] = useState<string[]>([]);
+  const [stats, setStats] = useState<{
+    taken: number;
+    missed: number;
+    streak: number;
+  }>({ taken: 0, missed: 0, streak: 0 });
+  const [weekly, setWeekly] = useState<{ day: string; taken: number; missed: number }[]>([]);
+  const snoozeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [isChecking, setIsChecking] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [activeAlarm, setActiveAlarm] = useState<Medication | null>(null);
@@ -39,6 +55,9 @@ export default function PillReminder() {
 
   // Local storage helpers so reminders still work if API / Supabase fails
   const LOCAL_STORAGE_KEY = "mediscan_pill_medications";
+  const STATS_STORAGE_KEY = "mediscan_pill_stats";
+  const ALLERGY_STORAGE_KEY = "mediscan_allergies";
+  const DOSE_EVENTS_KEY = "mediscan_dose_events";
 
   const loadMedicationsFromLocal = () => {
     try {
@@ -60,6 +79,108 @@ export default function PillReminder() {
       console.error("Error saving medications to local storage:", error);
     }
   };
+
+  const loadStatsFromLocal = () => {
+    try {
+      const stored = localStorage.getItem(STATS_STORAGE_KEY);
+      if (!stored) return { taken: 0, missed: 0, streak: 0 };
+      const parsed = JSON.parse(stored);
+      return {
+        taken: parsed.taken || 0,
+        missed: parsed.missed || 0,
+        streak: parsed.streak || 0,
+      };
+    } catch {
+      return { taken: 0, missed: 0, streak: 0 };
+    }
+  };
+
+  const saveStatsToLocal = (s: { taken: number; missed: number; streak: number }) => {
+    try {
+      localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(s));
+    } catch {
+      // ignore
+    }
+  };
+
+  const addDoseEvent = (status: "taken" | "missed") => {
+    try {
+      const raw = localStorage.getItem(DOSE_EVENTS_KEY);
+      const list = raw ? JSON.parse(raw) : [];
+      const events = Array.isArray(list) ? list : [];
+      events.push({ ts: Date.now(), status });
+      localStorage.setItem(DOSE_EVENTS_KEY, JSON.stringify(events));
+      computeWeekly(events);
+    } catch {
+      // ignore
+    }
+  };
+
+  const computeWeekly = (eventsOverride?: any[]) => {
+    try {
+      const raw = eventsOverride ?? JSON.parse(localStorage.getItem(DOSE_EVENTS_KEY) || "[]");
+      const events = Array.isArray(raw) ? raw : [];
+      const days: { day: string; taken: number; missed: number }[] = [];
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const key = d.toDateString();
+        const taken = events.filter((e: any) => new Date(e.ts).toDateString() === key && e.status === "taken").length;
+        const missed = events.filter((e: any) => new Date(e.ts).toDateString() === key && e.status === "missed").length;
+        days.push({
+          day: d.toLocaleDateString([], { weekday: "short" }),
+          taken,
+          missed,
+        });
+      }
+      setWeekly(days);
+    } catch {
+      setWeekly([]);
+    }
+  };
+
+  const getAllergyList = (): string[] => {
+    try {
+      // Prefer structured settings if present
+      const userStr = localStorage.getItem("mediscan_user");
+      let userId = "";
+      if (userStr) {
+        try {
+          const user = JSON.parse(userStr);
+          userId = user.id || user.userId || "";
+        } catch {
+          userId = userStr;
+        }
+      }
+      if (userId) {
+        const settingsStr = localStorage.getItem(`settings_${userId}`);
+        if (settingsStr) {
+          const settings = JSON.parse(settingsStr);
+          if (settings?.allergies) {
+            return String(settings.allergies)
+              .split(",")
+              .map((s: string) => s.trim().toLowerCase())
+              .filter(Boolean);
+          }
+        }
+      }
+      // Fallback generic allergies key
+      const raw = localStorage.getItem(ALLERGY_STORAGE_KEY);
+      if (!raw) return [];
+      return raw
+        .split(",")
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean);
+    } catch {
+      return [];
+    }
+  };
+
+  // Load stats once on mount
+  useEffect(() => {
+    setStats(loadStatsFromLocal());
+    computeWeekly();
+  }, []);
 
   // Load medications (try database, fall back to local storage)
   useEffect(() => {
@@ -289,6 +410,22 @@ export default function PillReminder() {
   const checkMedicationConflicts = async (newMed: Medication) => {
     setIsChecking(true);
     const newConflicts: string[] = [];
+    const newAllergyWarnings: string[] = [];
+
+    try {
+      const allergies = getAllergyList();
+      if (allergies.length > 0) {
+        const nameLower = newMed.name.toLowerCase();
+        const directAllergy = allergies.find((a) => nameLower.includes(a));
+        if (directAllergy) {
+          newAllergyWarnings.push(
+            `🚫 Allergy alert: You have marked an allergy to **${directAllergy}** which may relate to **${newMed.name}**.`
+          );
+        }
+      }
+    } catch (e) {
+      console.warn("Could not check allergies", e);
+    }
 
     try {
       const drugGroups = await searchDrugByName(newMed.name);
@@ -317,8 +454,9 @@ export default function PillReminder() {
     }
 
     setConflicts(newConflicts);
+    setAllergyWarnings(newAllergyWarnings);
     setIsChecking(false);
-    return newConflicts.length === 0;
+    return newConflicts.length === 0 && newAllergyWarnings.length === 0;
   };
 
   const addMedication = async () => {
@@ -328,7 +466,11 @@ export default function PillReminder() {
       id: Date.now().toString(),
       name: medication.name,
       dosage: medication.dosage,
-      time: medication.time
+      time: medication.time,
+      pillsRemaining: medication.pillsRemaining ? Number(medication.pillsRemaining) : undefined,
+      refillBy: medication.refillBy || undefined,
+      pillsPerDose: medication.pillsPerDose ? Number(medication.pillsPerDose) : 1,
+      refillThreshold: medication.refillThreshold ? Number(medication.refillThreshold) : 5,
     };
 
     const hasNoConflicts = await checkMedicationConflicts(newMed);
@@ -362,7 +504,7 @@ export default function PillReminder() {
         const updated = [...medications, newMed];
         setMedications(updated);
         saveMedicationsToLocal(updated);
-        setMedication({ name: "", dosage: "", time: "" });
+        setMedication({ name: "", dosage: "", time: "", pillsRemaining: "", refillBy: "", pillsPerDose: "1", refillThreshold: "5" });
 
         // Schedule notification
         scheduleNotification(newMed);
@@ -374,13 +516,42 @@ export default function PillReminder() {
         const updated = [...medications, newMed];
         setMedications(updated);
         saveMedicationsToLocal(updated);
-        setMedication({ name: "", dosage: "", time: "" });
+        setMedication({ name: "", dosage: "", time: "", pillsRemaining: "", refillBy: "", pillsPerDose: "1", refillThreshold: "5" });
         scheduleNotification(newMed);
         alert("Medication saved locally. Some online features may not work.");
       }
     } else {
       alert("⚠️ Potential medication conflicts detected. Please review and consult your healthcare provider.");
     }
+  };
+
+  const downloadICS = (filename: string, ics: string) => {
+    const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const addRefillToCalendar = (med: Medication) => {
+    if (!med.refillBy) return;
+    const date = med.refillBy.replace(/-/g, "");
+    const ics = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//MediScan//Refill//EN",
+      "BEGIN:VEVENT",
+      `UID:${med.id}@mediscan`,
+      `DTSTAMP:${date}T090000Z`,
+      `DTSTART;VALUE=DATE:${date}`,
+      `SUMMARY:Refill ${med.name}`,
+      `DESCRIPTION:Refill reminder for ${med.name}`,
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\r\n");
+    downloadICS(`refill-${med.name}.ics`, ics);
   };
 
   const removeMedication = async (id: string) => {
@@ -486,6 +657,38 @@ export default function PillReminder() {
             onChange={(e) => setMedication({ ...medication, time: e.target.value })}
           />
         </div>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+          <input
+            type="number"
+            min="0"
+            placeholder="Pills remaining"
+            className="px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+            value={medication.pillsRemaining}
+            onChange={(e) => setMedication({ ...medication, pillsRemaining: e.target.value })}
+          />
+          <input
+            type="number"
+            min="1"
+            placeholder="Pills per dose"
+            className="px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+            value={medication.pillsPerDose}
+            onChange={(e) => setMedication({ ...medication, pillsPerDose: e.target.value })}
+          />
+          <input
+            type="number"
+            min="0"
+            placeholder="Refill alert at"
+            className="px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+            value={medication.refillThreshold}
+            onChange={(e) => setMedication({ ...medication, refillThreshold: e.target.value })}
+          />
+          <input
+            type="date"
+            className="px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+            value={medication.refillBy}
+            onChange={(e) => setMedication({ ...medication, refillBy: e.target.value })}
+          />
+        </div>
 
         <div className="flex space-x-3">
           <button
@@ -525,22 +728,91 @@ export default function PillReminder() {
       </div>
 
       {/* Conflicts Alert */}
-      {conflicts.length > 0 && (
-        <div className="mx-6 mb-4 bg-red-50 border border-red-200 rounded-lg p-4">
-          <h4 className="text-red-800 font-semibold mb-2">⚠️ Potential Drug Interactions Detected</h4>
-          <ul className="text-red-700 text-sm space-y-1">
-            {conflicts.map((conflict, index) => (
-              <li key={index}>{conflict}</li>
-            ))}
-          </ul>
+      {(conflicts.length > 0 || allergyWarnings.length > 0) && (
+        <div className="mx-6 mb-4 bg-red-50 border border-red-200 rounded-lg p-4 space-y-3">
+          {conflicts.length > 0 && (
+            <div>
+              <h4 className="text-red-800 font-semibold mb-2">⚠️ Potential Drug Interactions Detected</h4>
+              <ul className="text-red-700 text-sm space-y-1">
+                {conflicts.map((conflict, index) => (
+                  <li key={index}>{conflict}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {allergyWarnings.length > 0 && (
+            <div>
+              <h4 className="text-red-800 font-semibold mb-2">🚫 Allergy Warnings</h4>
+              <ul className="text-red-700 text-sm space-y-1">
+                {allergyWarnings.map((w, index) => (
+                  <li key={index}>{w}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           <p className="text-red-600 text-xs mt-2">
-            Please consult your healthcare provider before proceeding.
+            Please consult your healthcare provider before proceeding or changing medications.
           </p>
         </div>
       )}
 
-      {/* Medication List */}
-      <div className="p-6">
+      {/* Weekly report + Adherence Summary + Medication List */}
+      <div className="p-6 space-y-4">
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <h3 className="text-sm font-semibold text-blue-800 uppercase tracking-wide mb-3">
+            Weekly Report (last 7 days)
+          </h3>
+          {weekly.length === 0 ? (
+            <p className="text-sm text-blue-700">No data yet. Mark doses taken/missed to see your chart.</p>
+          ) : (
+            <div className="grid grid-cols-7 gap-2 items-end">
+              {weekly.map((d) => {
+                const total = d.taken + d.missed;
+                const height = Math.min(80, total * 18);
+                return (
+                  <div key={d.day} className="text-center">
+                    <div className="h-24 flex items-end justify-center">
+                      <div className="w-6">
+                        <div className="bg-green-500 rounded-t" style={{ height: `${Math.min(80, d.taken * 18)}px` }} />
+                        <div className="bg-red-400" style={{ height: `${Math.min(80 - Math.min(80, d.taken * 18), d.missed * 18)}px` }} />
+                      </div>
+                    </div>
+                    <div className="text-[11px] text-gray-600">{d.day}</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <p className="text-xs text-gray-500 mt-2">Green = taken, Red = missed</p>
+        </div>
+
+        <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-purple-800 uppercase tracking-wide">
+              Adherence Summary
+            </h3>
+            <p className="text-xs text-purple-700 mt-1">
+              Keep your streak going by marking doses when you take them.
+            </p>
+          </div>
+          <div className="flex space-x-6 text-sm">
+            <div className="text-center">
+              <p className="text-xs text-gray-500">Taken</p>
+              <p className="text-lg font-bold text-green-600">{stats.taken}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-xs text-gray-500">Missed</p>
+              <p className="text-lg font-bold text-red-500">{stats.missed}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-xs text-gray-500">Streak (days)</p>
+              <p className="text-lg font-bold text-purple-700">{stats.streak}</p>
+            </div>
+          </div>
+        </div>
+
         <h3 className="text-lg font-semibold mb-4 text-gray-800">Your Medications</h3>
         {medications.length === 0 ? (
           <p className="text-gray-500 text-center py-8">No medications added yet. Add your first medication above.</p>
@@ -555,6 +827,23 @@ export default function PillReminder() {
                   <div>
                     <h4 className="font-semibold text-gray-800">{med.name}</h4>
                     <p className="text-sm text-gray-600">{med.dosage} • {med.time}</p>
+                    {typeof med.pillsRemaining === "number" && (
+                      <p className="text-xs text-gray-500">
+                        Pills left: <span className="font-medium">{med.pillsRemaining}</span>
+                        {typeof med.refillThreshold === "number" && med.pillsRemaining <= med.refillThreshold ? (
+                          <span className="text-red-600 font-semibold"> • Refill soon</span>
+                        ) : null}
+                      </p>
+                    )}
+                    {med.refillBy && (
+                      <button
+                        type="button"
+                        onClick={() => addRefillToCalendar(med)}
+                        className="mt-2 text-xs bg-white border px-3 py-1 rounded hover:bg-gray-100"
+                      >
+                        📅 Add refill to calendar
+                      </button>
+                    )}
                   </div>
                 </div>
                 <button
@@ -581,19 +870,86 @@ export default function PillReminder() {
       {/* Alarm Modal */}
       {activeAlarm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-8 rounded-2xl shadow-2xl max-w-md w-full text-center animate-bounce-slight">
-            <div className="text-6xl mb-4 animate-pulse">⏰</div>
+          <div className="bg-white p-8 rounded-2xl shadow-2xl max-w-md w-full text-center animate-bounce-slight space-y-4">
+            <div className="text-6xl mb-2 animate-pulse">⏰</div>
             <h2 className="text-3xl font-bold text-gray-800 mb-2">Time to take your meds!</h2>
-            <div className="bg-purple-100 p-4 rounded-xl mb-6">
+            <div className="bg-purple-100 p-4 rounded-xl">
               <p className="text-2xl font-semibold text-purple-700">{activeAlarm.name}</p>
               <p className="text-lg text-purple-600">{activeAlarm.dosage}</p>
             </div>
-            <button
-              onClick={() => setActiveAlarm(null)}
-              className="bg-purple-600 hover:bg-purple-700 text-white text-xl font-bold py-4 px-8 rounded-full shadow-lg transform transition hover:scale-105"
-            >
-              I've taken it ✅
-            </button>
+            <div className="flex flex-col space-y-3 mt-4">
+              <button
+                onClick={() => {
+                  setStats(prev => {
+                    const next = {
+                      taken: prev.taken + 1,
+                      missed: prev.missed,
+                      streak: prev.streak + 1,
+                    };
+                    saveStatsToLocal(next);
+                    return next;
+                  });
+                  addDoseEvent("taken");
+                  // Decrement pills remaining
+                  const perDose = activeAlarm.pillsPerDose ?? 1;
+                  if (typeof activeAlarm.pillsRemaining === "number") {
+                    const updated = medications.map((m) =>
+                      m.id === activeAlarm.id
+                        ? { ...m, pillsRemaining: Math.max(0, (m.pillsRemaining ?? 0) - perDose) }
+                        : m
+                    );
+                    setMedications(updated);
+                    saveMedicationsToLocal(updated);
+                  }
+                  setActiveAlarm(null);
+                }}
+                className="bg-purple-600 hover:bg-purple-700 text-white text-xl font-bold py-3 px-8 rounded-full shadow-lg transform transition hover:scale-105"
+              >
+                I've taken it ✅
+              </button>
+              <div className="flex gap-2 justify-center">
+                <button
+                  onClick={() => {
+                    if (snoozeTimeoutRef.current) clearTimeout(snoozeTimeoutRef.current);
+                    const med = activeAlarm;
+                    setActiveAlarm(null);
+                    snoozeTimeoutRef.current = setTimeout(() => setActiveAlarm(med), 5 * 60 * 1000);
+                  }}
+                  className="bg-blue-50 hover:bg-blue-100 text-blue-700 text-sm font-medium py-2 px-4 rounded-full transition"
+                >
+                  Snooze 5m
+                </button>
+                <button
+                  onClick={() => {
+                    if (snoozeTimeoutRef.current) clearTimeout(snoozeTimeoutRef.current);
+                    const med = activeAlarm;
+                    setActiveAlarm(null);
+                    snoozeTimeoutRef.current = setTimeout(() => setActiveAlarm(med), 10 * 60 * 1000);
+                  }}
+                  className="bg-blue-50 hover:bg-blue-100 text-blue-700 text-sm font-medium py-2 px-4 rounded-full transition"
+                >
+                  Snooze 10m
+                </button>
+              </div>
+              <button
+                onClick={() => {
+                  setStats(prev => {
+                    const next = {
+                      taken: prev.taken,
+                      missed: prev.missed + 1,
+                      streak: 0,
+                    };
+                    saveStatsToLocal(next);
+                    return next;
+                  });
+                  addDoseEvent("missed");
+                  setActiveAlarm(null);
+                }}
+                className="bg-gray-100 hover:bg-gray-200 text-gray-800 text-sm font-medium py-2 px-6 rounded-full transition"
+              >
+                Skip / I missed this dose
+              </button>
+            </div>
           </div>
         </div>
       )}

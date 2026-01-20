@@ -52,6 +52,22 @@ export default function Dashboard() {
       bgColor: "bg-red-50"
     },
     {
+      title: "Emergency Card",
+      desc: "Lock-screen friendly medical ID with allergies, meds & SOS contact.",
+      icon: "🪪",
+      path: "/emergency-card",
+      gradient: "from-orange-500 to-amber-500",
+      bgColor: "bg-orange-50"
+    },
+    {
+      title: "Doctor Visit",
+      desc: "One-page summary for your doctor. Export as PDF.",
+      icon: "🧾",
+      path: "/doctor-visit",
+      gradient: "from-indigo-500 to-purple-500",
+      bgColor: "bg-indigo-50"
+    },
+    {
       title: "Secure Auth",
       desc: "OTP-based authentication via email.",
       icon: "🔐",

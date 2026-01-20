@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
+import ClientPreferencesProvider from "@/components/ClientPreferencesProvider";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -45,7 +46,7 @@ export default function RootLayout({
       <body className={`${inter.className} h-full bg-slate-50 antialiased`}>
         {/* You can wrap providers here (e.g., Auth, Theme) */}
         <div className="flex flex-col min-h-screen">
-          {children}
+          <ClientPreferencesProvider>{children}</ClientPreferencesProvider>
         </div>
       </body>
     </html>
