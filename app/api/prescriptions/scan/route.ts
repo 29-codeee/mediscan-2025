@@ -35,10 +35,18 @@ export async function POST(request: NextRequest) {
 
     // Use Gemini AI to analyze the prescription image
     let prescriptionData;
-    try {
-      const model = genAI.getGenerativeModel({ model: 'gemini-flash-latest' });
+    
+    // Try multiple models
+    const modelsToTry = ['gemini-flash-latest', 'gemini-pro', 'gemini-1.5-flash'];
+    let aiSuccess = false;
 
-      const prompt = `
+    for (const modelName of modelsToTry) {
+      if (aiSuccess) break;
+      
+      try {
+        const model = genAI.getGenerativeModel({ model: modelName });
+
+        const prompt = `
         Analyze this prescription image and extract the following information in JSON format:
         {
           "medications": [
@@ -83,12 +91,23 @@ export async function POST(request: NextRequest) {
         } else {
           prescriptionData = JSON.parse(text);
         }
+        aiSuccess = true; // Mark as successful to break the loop
       } catch (parseError) {
-        console.error('Error parsing AI response:', parseError);
+        console.error(`Error parsing AI response from ${modelName}:`, parseError);
+        // Don't mark as success, try next model if possible, or just fail this iteration
+        // Actually, if we got a response but failed to parse, it might be the model's fault or the image.
+        // Let's try next model just in case.
         throw new Error('Failed to parse prescription data');
       }
     } catch (aiError) {
-      console.warn('AI Analysis failed, using fallback data:', aiError);
+      console.warn(`AI Analysis failed with ${modelName}:`, aiError);
+      // Loop continues
+    }
+  }
+
+  // Fallback if all models failed
+  if (!prescriptionData) {
+      console.warn('All AI models failed, using fallback data');
       prescriptionData = {
         medications: [
           {
